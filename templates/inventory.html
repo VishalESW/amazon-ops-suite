@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% set active = 'inventory' %}
+{% block title %}Inventory Transfer{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-start justify-between gap-4">
+  <div class="flex items-start gap-3">
+    <span class="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm" style="background:hsl(160 84% 39%)">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/></svg>
+    </span>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Inventory Transfer</h1>
+      <p class="mt-1 text-sm text-muted-foreground">Connect Seller Central, pull live reports, and build the FBA transfer workbook.</p>
+    </div>
+  </div>
+  <a href="/inventory/connect"
+     class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white shadow-soft hover:opacity-90 transition"
+     style="background:hsl(160 84% 39%)">
+    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    Connect seller account
+  </a>
+</div>
+
+{% if warnings %}
+<div class="mt-5 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+  <p class="font-semibold flex items-center gap-2 text-warning">
+    <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+    Setup needed before OAuth will work
+  </p>
+  <ul class="mt-2 list-disc pl-6 space-y-1 text-muted-foreground">
+    {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- What gets pulled -->
+<div class="mt-6 grid gap-3 sm:grid-cols-3">
+  {% for icon, t, d in [
+    ('<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>','Manage FBA Inventory','Fulfillable, inbound & reserved quantities per SKU.'),
+    ('<path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/>','Business Reports ×6','Units ordered across L30/60/90/180/270/365-day windows.'),
+    ('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>','All Listings','Active listing prices, channels & status.')
+  ] %}
+  <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+    <div class="flex items-center gap-2.5">
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-secondary text-secondary-foreground">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{ icon|safe }}</svg>
+      </span>
+      <span class="text-sm font-semibold">{{ t }}</span>
+    </div>
+    <p class="mt-2 text-xs text-muted-foreground">{{ d }}</p>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Connected accounts -->
+<div class="mt-6 rounded-xl border border-border bg-card shadow-soft">
+  <div class="border-b border-border px-5 py-3.5 flex items-center justify-between">
+    <h2 class="font-semibold">Connected accounts</h2>
+    <span class="text-xs text-muted-foreground">{{ accounts|length }} connected</span>
+  </div>
+  {% if accounts %}
+  <div class="divide-y divide-border">
+    {% for a in accounts %}
+    <label class="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-accent/50 transition" data-account="{{ a.id }}">
+      <input type="radio" name="account" value="{{ a.id }}" class="h-4 w-4 accent-emerald" data-market="{{ a.market }}" onchange="syncMarket()" {% if loop.first %}checked{% endif %}>
+      <div class="grid h-9 w-9 place-items-center rounded-lg text-white font-semibold" style="background:hsl(160 84% 39%)">
+        {{ (a.name or 'S')[0]|upper }}
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="font-medium truncate">{{ a.name or 'Seller account' }}</p>
+        <p class="text-xs text-muted-foreground num">{{ a.market }} · {{ a.region or 'NA' }}</p>
+      </div>
+      <button type="button" onclick="delAccount('{{ a.id }}', event)"
+        class="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-danger hover:border-danger/50 transition">Remove</button>
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="px-5 py-12 text-center">
+    <p class="text-sm text-muted-foreground">No accounts connected yet.</p>
+    <p class="mt-1 text-xs text-muted-foreground">Click “Connect seller account” to authorize via Amazon.</p>
+  </div>
+  {% endif %}
+</div>
+
+{% if accounts %}
+<!-- Build controls + options -->
+<div class="mt-6 rounded-xl border border-border bg-card shadow-soft p-5">
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Replenishment buffer (%)
+        <span title="Safety stock added on top of demand (workbook cell P5). 0 = none.">ⓘ</span>
+      </label>
+      <input id="buffer" type="number" min="0" max="100" step="1" value="0" class="stepper">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Marketplace
+        <span title="Auto-detected from the connected seller account.">ⓘ</span>
+      </label>
+      <div id="marketDisplay" class="flex h-[38px] items-center gap-2 rounded-md border border-input bg-background px-3 text-sm">
+        <svg class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg>
+        <span id="marketCode" class="num font-semibold">—</span>
+        <span class="text-xs text-muted-foreground">auto-detected</span>
+      </div>
+    </div>
+    <div class="sm:col-span-2 lg:col-span-2 flex items-end">
+      <button id="fetchBtn" onclick="startFetch()"
+        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.2-8.5"/><path d="M21 3v6h-6"/></svg>
+        Fetch reports &amp; build
+      </button>
+    </div>
+  </div>
+  <p class="mt-3 text-xs text-muted-foreground">Marketplace &amp; bands are auto-detected. Pulls 3 reports (6 sales windows) — takes a few minutes.</p>
+
+  <div id="progress" class="mt-4 hidden">
+    <div class="flex items-center gap-3">
+      <svg class="h-4 w-4 animate-spin text-emerald" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>
+      <span id="progressMsg" class="text-sm font-medium">Starting…</span>
+    </div>
+  </div>
+</div>
+
+<!-- Stats panel -->
+<div id="statsCard" class="mt-6 hidden">
+  <div class="grid gap-3 grid-cols-2 sm:grid-cols-4">
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Products</div>
+      <div id="stProducts" class="num text-2xl font-bold mt-1">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">FBA SKUs</div>
+      <div id="stFba" class="num text-2xl font-bold mt-1">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Listings</div>
+      <div id="stListings" class="num text-2xl font-bold mt-1">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Market · Buffer</div>
+      <div id="stMarket" class="text-2xl font-bold mt-1">—</div>
+    </div>
+  </div>
+  <!-- Band distribution -->
+  <div class="mt-3 rounded-xl border border-border bg-card p-4 shadow-soft">
+    <div class="flex items-center justify-between">
+      <span class="text-sm font-semibold">Band distribution</span>
+      <span class="text-xs text-muted-foreground">auto-assigned by sales velocity</span>
+    </div>
+    <div id="bandBar" class="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-secondary"></div>
+    <div id="bandChips" class="mt-3 flex flex-wrap gap-2"></div>
+  </div>
+</div>
+
+<!-- Download -->
+<div id="downloadCard" class="mt-6 rounded-xl border border-success/40 bg-success/10 p-5 hidden">
+  <div class="flex items-center gap-3">
+    <svg class="h-5 w-5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+    <div class="flex-1">
+      <p class="font-semibold">Workbook ready</p>
+      <p id="downloadName" class="text-xs text-muted-foreground num"></p>
+    </div>
+    <a id="downloadLink" class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+      Download
+    </a>
+  </div>
+</div>
+
+<!-- Preview -->
+<div id="previewCard" class="mt-6 rounded-xl border border-border bg-card shadow-soft hidden">
+  <div class="border-b border-border px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h2 class="font-semibold">Products &amp; auto-assigned bands</h2>
+      <p class="text-xs text-muted-foreground">Bands are calculated automatically from sales velocity.</p>
+    </div>
+    <input id="filterBox" oninput="renderPreview()" placeholder="Filter by SKU / title…"
+      class="w-56 rounded-md border border-input bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+  </div>
+  <div class="max-h-[60vh] overflow-auto">
+    <table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide">
+        <tr>
+          <th class="px-3 py-2.5 font-semibold">Child SKU</th><th class="px-3 py-2.5 font-semibold">Child ASIN</th>
+          <th class="px-3 py-2.5 font-semibold">Title</th><th class="px-3 py-2.5 font-semibold">Fulfillment</th>
+          <th class="px-3 py-2.5 font-semibold text-right">L30D</th><th class="px-3 py-2.5 font-semibold">BAND</th>
+        </tr>
+      </thead>
+      <tbody id="previewBody" class="divide-y divide-border"></tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+let products = [];
+const BAND_HEX = {'BAND A':'217 91% 60%','BAND B':'160 84% 39%','BAND C':'38 92% 50%','EOL':'0 72% 51%'};
+
+function selectedAccount(){ const el=document.querySelector('input[name="account"]:checked'); return el?el.value:null; }
+function syncMarket(){ const el=document.querySelector('input[name="account"]:checked'); document.getElementById('marketCode').textContent=(el&&el.dataset.market)||'—'; }
+syncMarket();
+async function delAccount(id, ev){ ev.preventDefault(); if(!confirm('Remove this account? Stored tokens will be deleted.')) return; const r=await fetch(`/inventory/${id}/delete`,{method:'POST'}); if(r.ok) location.reload(); }
+function setMsg(m){ document.getElementById('progressMsg').textContent = m; }
+
+async function startFetch(){
+  const acct = selectedAccount();
+  if(!acct){ toast('Select an account first','error'); return; }
+  document.getElementById('fetchBtn').disabled=true;
+  ['previewCard','downloadCard','statsCard'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  document.getElementById('progress').classList.remove('hidden'); setMsg('Starting…');
+  const body = { buffer_pct: +document.getElementById('buffer').value||0 };
+  let res;
+  try{ res = await fetch(`/inventory/${acct}/fetch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()); }
+  catch(e){ return fail('Network error starting fetch'); }
+  if(!res.success){ return fail(res.error||'Failed to start'); }
+  pollFetch(acct, res.job_id);
+}
+function fail(m){ document.getElementById('progress').classList.add('hidden'); document.getElementById('fetchBtn').disabled=false; toast(m,'error'); }
+
+async function pollFetch(acct, jobId){
+  try{
+    const s = await fetch(`/inventory/fetch/${jobId}`).then(r=>r.json());
+    if(!s.success) return fail(s.error||'Job error');
+    setMsg(s.message||'…');
+    if(s.state==='error') return fail(s.message||'Report pull failed');
+    if(s.state==='done'){
+      const data = await fetch(`/inventory/fetch/${jobId}/data`).then(r=>r.json());
+      document.getElementById('progress').classList.add('hidden'); document.getElementById('fetchBtn').disabled=false;
+      products = data.product_list||[];
+      renderStats(data.stats||{});
+      renderPreview();
+      if(data.filename){ document.getElementById('downloadName').textContent=data.filename; document.getElementById('downloadLink').href=`/download/${data.filename}`; document.getElementById('downloadCard').classList.remove('hidden'); }
+      toast('Inventory workbook ready','success');
+      return;
+    }
+    setTimeout(()=>pollFetch(acct, jobId), 2500);
+  }catch(e){ setTimeout(()=>pollFetch(acct, jobId), 3000); }
+}
+
+function renderStats(st){
+  if(!st.products){ document.getElementById('statsCard').classList.add('hidden'); return; }
+  document.getElementById('stProducts').textContent = st.products;
+  document.getElementById('stFba').textContent = st.fba_skus;
+  document.getElementById('stListings').textContent = st.listings;
+  document.getElementById('stMarket').innerHTML = `${st.market} <span class="text-sm font-normal text-muted-foreground">· +${st.buffer_pct}%</span>`;
+  const bands = st.bands||{}; const total = st.products||1;
+  const bar = document.getElementById('bandBar'); bar.innerHTML='';
+  const chips = document.getElementById('bandChips'); chips.innerHTML='';
+  ['BAND A','BAND B','BAND C','EOL'].forEach(b=>{
+    const n = bands[b]||0; if(!n) return;
+    const seg=document.createElement('div'); seg.style.width=(n/total*100)+'%'; seg.style.background=`hsl(${BAND_HEX[b]})`; bar.appendChild(seg);
+    const chip=document.createElement('span'); chip.className='inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs';
+    chip.innerHTML=`<span class="h-2 w-2 rounded-full" style="background:hsl(${BAND_HEX[b]})"></span>${b} · <span class="num font-semibold">${n}</span>`;
+    chips.appendChild(chip);
+  });
+  document.getElementById('statsCard').classList.remove('hidden');
+}
+
+function bandPill(band){ return `<span class="rounded-full px-2 py-0.5 text-xs font-medium" style="background:hsl(${BAND_HEX[band]||'215 16% 47%'} / .15);color:hsl(${BAND_HEX[band]||'215 16% 47%'})">${esc(band||'—')}</span>`; }
+
+function renderPreview(){
+  const q=(document.getElementById('filterBox')?.value||'').toLowerCase();
+  const body=document.getElementById('previewBody'); body.innerHTML='';
+  products.filter(p=>!q || (p.sku||'').toLowerCase().includes(q) || (p.title||'').toLowerCase().includes(q)).forEach(p=>{
+    const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2 num">${esc(p.sku)}</td>
+      <td class="px-3 py-2 num text-muted-foreground">${esc(p.asin||'')}</td>
+      <td class="px-3 py-2 max-w-[320px] truncate" title="${esc(p.title||'')}">${esc(p.title||'')}</td>
+      <td class="px-3 py-2"><span class="rounded-md bg-secondary px-2 py-0.5 text-xs">${esc(p.fulfillment||'')}</span></td>
+      <td class="px-3 py-2 text-right num">${p._l30d ?? 0}</td>
+      <td class="px-3 py-2">${bandPill(p.band)}</td>`;
+    body.appendChild(tr);
+  });
+  document.getElementById('previewCard').classList.remove('hidden');
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+</script>
+{% endblock %}

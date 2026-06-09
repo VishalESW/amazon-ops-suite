@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% set active = 'campaign' %}
+{% block title %}Campaign Processor · Amazon Ops Suite{% endblock %}
+
+{% block head %}
+<style>
+/* Hallmark · app-scope: existing token system (base.html) · genre: modern-minimal
+ * theme: inherited (no new theme) · contrast: pass · states: full
+ */
+.cp-card{ background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:var(--radius); }
+.cp-badge{ display:inline-flex; align-items:center; gap:.35rem; padding:.15rem .55rem; border-radius:999px;
+  font-size:.7rem; font-weight:600; letter-spacing:.01em; border:1px solid transparent; white-space:nowrap; }
+.cp-dot{ width:.5rem; height:.5rem; border-radius:999px; flex:none; }
+.cp-modal-bg{ position:fixed; inset:0; background:rgba(2,6,23,.55); backdrop-filter:blur(2px); z-index:60; }
+.cp-modal{ position:fixed; z-index:61; inset:0; display:grid; place-items:center; padding:1rem; }
+.cp-prof-row{ cursor:pointer; }
+.cp-prof-row[aria-selected="true"]{ background:hsl(var(--accent)); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Campaign Processor</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        Build the full PPC campaign workbook step by step, from AdLabs data and your research files.
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="cp-badge" style="border-color:hsl(var(--border))">
+        <span class="cp-dot" style="background:hsl(var({{ 'var' if false else '--success' if adlabs_ready else '--warning' }}))"></span>
+        AdLabs {{ 'connected' if adlabs_ready else 'not configured' }}
+      </span>
+      <span class="cp-badge" style="border-color:hsl(var(--border))">
+        <span class="cp-dot" style="background:hsl(var({{ '--success' if ai_ready else '--warning' }}))"></span>
+        AI {{ 'ready' if ai_ready else 'heuristic' }}
+      </span>
+      <span class="cp-badge" style="border-color:hsl(var(--border)); text-transform:capitalize">{{ role }}</span>
+      <button onclick="openNew()" class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        New project
+      </button>
+    </div>
+  </div>
+
+  <!-- Manager approval queue -->
+  {% if is_manager and pending %}
+  <section class="cp-card p-5">
+    <div class="flex items-center gap-2 mb-3">
+      <svg class="h-4 w-4" style="color:hsl(var(--warning))" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+      <h2 class="font-semibold">Awaiting your approval</h2>
+      <span class="cp-badge" style="background:hsl(var(--warning)/.12); color:hsl(var(--warning))">{{ pending|length }}</span>
+    </div>
+    <ul class="divide-y divide-border">
+      {% for a in pending %}
+      <li class="flex items-center justify-between gap-4 py-2.5">
+        <div class="min-w-0">
+          <p class="font-medium truncate">{{ a.project_name }} <span class="text-muted-foreground">· {{ a.profile_name }}</span></p>
+          <p class="text-xs text-muted-foreground">Step <span class="num">{{ a.step_key }}</span> · requested by {{ a.requested_by }}</p>
+        </div>
+        <a href="/campaign/projects/{{ a.project_id }}" class="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent transition">Review</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <!-- Projects -->
+  <section>
+    <h2 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Projects</h2>
+    {% if projects %}
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {% for p in projects %}
+      <a href="/campaign/projects/{{ p.id }}" class="cp-card p-4 hover:shadow-lift transition block">
+        <div class="flex items-start justify-between gap-2">
+          <h3 class="font-semibold leading-tight">{{ p.name }}</h3>
+          {% set st = p.status %}
+          <span class="cp-badge"
+            style="{% if st=='awaiting_approval' %}background:hsl(var(--warning)/.12);color:hsl(var(--warning)){% elif st=='approved' %}background:hsl(var(--success)/.12);color:hsl(var(--success)){% elif st=='completed' %}background:hsl(var(--primary)/.1);color:hsl(var(--foreground)){% else %}background:hsl(var(--muted));color:hsl(var(--muted-foreground)){% endif %}">
+            {{ st.replace('_',' ') }}
+          </span>
+        </div>
+        <p class="mt-1 text-sm text-muted-foreground truncate">{{ p.profile_name or '—' }}</p>
+        <p class="mt-3 text-xs text-muted-foreground">Step: <span class="font-medium text-foreground">{{ p.current_step or 'profile' }}</span></p>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="cp-card p-10 text-center">
+      <p class="text-muted-foreground">No projects yet. Create one to start building a campaign workbook.</p>
+      <button onclick="openNew()" class="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">New project</button>
+    </div>
+    {% endif %}
+  </section>
+</div>
+
+<!-- New-project modal -->
+<div id="newBg" class="cp-modal-bg hidden" onclick="closeNew()"></div>
+<div id="newModal" class="cp-modal hidden">
+  <div class="cp-card w-full max-w-xl p-5 shadow-lift" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold">New campaign project</h2>
+      <button onclick="closeNew()" class="grid h-8 w-8 place-items-center rounded-md hover:bg-accent" aria-label="Close">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <label class="block text-sm font-medium mb-1">Project name</label>
+    <input id="npName" type="text" placeholder="e.g. TVA Supply — Q2 launch"
+      class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-ring">
+
+    <div class="flex items-center justify-between mb-1">
+      <label class="block text-sm font-medium">AdLabs profile</label>
+      <button onclick="loadProfiles(true)" class="text-xs text-muted-foreground hover:text-foreground">Refresh</button>
+    </div>
+    <input id="npSearch" type="text" placeholder="Search profiles…" oninput="filterProfiles()"
+      class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-ring">
+    <div id="npList" class="max-h-64 overflow-y-auto rounded-md border border-border divide-y divide-border">
+      <p id="npLoading" class="p-4 text-sm text-muted-foreground">Loading profiles…</p>
+    </div>
+
+    <div class="mt-5 flex justify-end gap-2">
+      <button onclick="closeNew()" class="rounded-md border border-border px-3.5 py-2 text-sm font-medium hover:bg-accent transition">Cancel</button>
+      <button id="npCreate" onclick="createProject()" disabled
+        class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed">Create project</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+let PROFILES=[], SEL=null;
+function openNew(){ document.getElementById('newBg').classList.remove('hidden');
+  document.getElementById('newModal').classList.remove('hidden'); if(!PROFILES.length) loadProfiles(); }
+function closeNew(){ document.getElementById('newBg').classList.add('hidden');
+  document.getElementById('newModal').classList.add('hidden'); }
+
+async function loadProfiles(refresh){
+  const list=document.getElementById('npList');
+  list.innerHTML='<p class="p-4 text-sm text-muted-foreground">Loading profiles…</p>';
+  try{
+    const r=await fetch('/campaign/profiles'+(refresh?'?refresh=1':'')).then(r=>r.json());
+    if(!r.success){ list.innerHTML='<p class="p-4 text-sm text-danger">'+esc(r.error||'Failed to load')+'</p>'; return; }
+    PROFILES=r.profiles||[]; renderProfiles(PROFILES);
+  }catch(e){ list.innerHTML='<p class="p-4 text-sm text-danger">Could not load profiles: '+esc(e.message||e)+'</p>'; }
+}
+function renderProfiles(rows){
+  const list=document.getElementById('npList');
+  if(!rows.length){ list.innerHTML='<p class="p-4 text-sm text-muted-foreground">No profiles found.</p>'; return; }
+  list.innerHTML=rows.map((p,i)=>`
+    <div class="cp-prof-row flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-accent"
+         data-i="${i}" aria-selected="false" onclick="pick(${i})">
+      <div class="min-w-0">
+        <p class="text-sm font-medium truncate">${esc(p.name)} <span class="text-muted-foreground">· ${esc(p.country||'')}</span></p>
+        <p class="text-xs text-muted-foreground truncate">${esc(p.team_name||'')}</p>
+      </div>
+      <svg class="h-4 w-4 shrink-0 opacity-0" data-check viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+    </div>`).join('');
+}
+function filterProfiles(){
+  const q=document.getElementById('npSearch').value.toLowerCase();
+  renderProfiles(PROFILES.filter(p=>(p.name+' '+p.country+' '+p.team_name).toLowerCase().includes(q)));
+  SEL=null; document.getElementById('npCreate').disabled=true;
+}
+function pick(i){
+  SEL=PROFILES[i];
+  document.querySelectorAll('.cp-prof-row').forEach(el=>{ el.setAttribute('aria-selected','false');
+    el.querySelector('[data-check]').classList.add('opacity-0'); });
+  const row=document.querySelector(`.cp-prof-row[data-i="${i}"]`);
+  if(row){ row.setAttribute('aria-selected','true'); row.querySelector('[data-check]').classList.remove('opacity-0'); }
+  document.getElementById('npCreate').disabled=!(SEL&&SEL.slug);
+  if(!document.getElementById('npName').value.trim() && SEL) document.getElementById('npName').value=SEL.name;
+}
+async function createProject(){
+  if(!SEL||!SEL.slug) return;
+  const btn=document.getElementById('npCreate'); btn.disabled=true; btn.textContent='Creating…';
+  const fd=new FormData();
+  fd.append('name', document.getElementById('npName').value.trim()||SEL.name);
+  fd.append('team_id', SEL.team_id); fd.append('slug', SEL.slug); fd.append('profile_name', SEL.name);
+  try{
+    const r=await fetch('/campaign/projects',{method:'POST',body:fd}).then(r=>r.json());
+    if(r.success){ window.location=r.redirect; }
+    else { toast(r.error||'Failed','error'); btn.disabled=false; btn.textContent='Create project'; }
+  }catch(e){ toast('Network error','error'); btn.disabled=false; btn.textContent='Create project'; }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Access denied · Amazon Ops Suite</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{ color-scheme:dark; }
+    body{ margin:0; min-height:100dvh; display:grid; place-items:center; font-family:Inter,system-ui,sans-serif;
+      background:radial-gradient(45% 60% at 50% 0%, hsl(0 72% 51% / .16), transparent 70%), #0a0f1c; color:#e6edf6; }
+    .card{ width:100%; max-width:440px; margin:24px; padding:32px; text-align:center;
+      background:#0e1626; border:1px solid #1e293b; border-radius:16px; box-shadow:0 20px 60px -20px rgba(0,0,0,.6); }
+    .icon{ width:56px; height:56px; border-radius:999px; background:hsl(0 72% 51% / .14); display:grid; place-items:center; margin:0 auto 14px; }
+    h1{ font-size:22px; font-weight:800; margin:0 0 6px; }
+    p{ color:#9aa7bd; font-size:14px; margin:0 0 8px; }
+    .email{ color:#cbd5e1; font-weight:600; }
+    .btn{ display:inline-flex; align-items:center; gap:8px; margin-top:18px; padding:10px 18px; border-radius:10px;
+      background:#e6edf6; color:#0a0f1c; font-weight:700; font-size:14px; border:0; cursor:pointer; text-decoration:none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+    <h1>Access denied</h1>
+    {% if email %}<p>The account <span class="email">{{ email }}</span> isn't part of this organization.</p>{% endif %}
+    <p>This app is restricted to <span class="email">@{{ domain or 'esellerworld.com' }}</span> Google accounts.</p>
+    <button class="btn" onclick="switchAccount()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M16 17l5-5-5-5M21 12H9M12 19a7 7 0 1 1 0-14"/></svg>
+      Sign out &amp; use a company account
+    </button>
+  </div>
+
+  {% if clerk_frontend_api %}
+  <script async crossorigin="anonymous"
+    data-clerk-publishable-key="{{ clerk_pk }}"
+    src="https://{{ clerk_frontend_api }}/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"></script>
+  {% endif %}
+  <script>
+    async function switchAccount(){
+      try { await Clerk.load(); await Clerk.signOut(); } catch(e) {}
+      window.location.href = '/sign-in';
+    }
+  </script>
+</body>
+</html>

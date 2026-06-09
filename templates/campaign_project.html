@@ -1,0 +1,705 @@
+{% extends "base.html" %}
+{% set active = 'campaign' %}
+{% block title %}{{ project.name }} · Campaign Processor{% endblock %}
+
+{% block head %}
+<style>
+/* Hallmark · app-scope: existing token system (base.html) · genre: modern-minimal
+ * theme: inherited · grid views: sticky header + horizontal scroll, no truncation
+ */
+.cp-card{ background:hsl(var(--card)); border:1px solid hsl(var(--border)); border-radius:var(--radius); }
+.cp-badge{ display:inline-flex; align-items:center; gap:.35rem; padding:.15rem .55rem; border-radius:999px;
+  font-size:.7rem; font-weight:600; border:1px solid hsl(var(--border)); white-space:nowrap; }
+
+/* Progress rail */
+.cp-rail{ display:flex; gap:.25rem; overflow-x:auto; padding-bottom:.25rem; }
+.cp-step{ display:flex; align-items:center; gap:.5rem; padding:.5rem .75rem; border-radius:.5rem;
+  white-space:nowrap; color:hsl(var(--muted-foreground)); font-size:.8rem; font-weight:500; flex:none; transition:background .15s; }
+.cp-step:hover{ background:hsl(var(--accent)); }
+.cp-step[data-on="1"]{ background:hsl(var(--accent)); color:hsl(var(--accent-foreground)); font-weight:600; }
+.cp-step-n{ display:grid; place-items:center; width:1.4rem; height:1.4rem; border-radius:999px; font-size:.7rem;
+  background:hsl(var(--muted)); color:hsl(var(--muted-foreground)); flex:none; }
+.cp-step[data-on="1"] .cp-step-n{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+/* completed steps — green check */
+.cp-step[data-state="done"]{ color:hsl(var(--success)); }
+.cp-step[data-state="done"] .cp-step-n{ background:hsl(var(--success)); color:#fff; }
+.cp-step[data-state="done"]:hover{ background:hsl(var(--success)/.12); }
+/* current step stays primary-highlighted (data-on) and overrides done */
+.cp-step[data-on="1"]{ background:hsl(var(--accent)); color:hsl(var(--accent-foreground)); font-weight:600; }
+.cp-step[data-on="1"] .cp-step-n{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+
+/* Data grid — never truncate, horizontal scroll, sticky header */
+.cp-tablewrap{ overflow:auto; max-height:70vh; border:1px solid hsl(var(--border)); border-radius:var(--radius); }
+table.cp-grid{ border-collapse:separate; border-spacing:0; width:100%; font-size:.8rem; }
+table.cp-grid th, table.cp-grid td{ padding:.5rem .7rem; text-align:left; white-space:nowrap;
+  border-bottom:1px solid hsl(var(--border)); }
+table.cp-grid thead th{ position:sticky; top:0; z-index:2; background:hsl(var(--muted));
+  color:hsl(var(--muted-foreground)); font-weight:600; }
+table.cp-grid tbody tr:hover{ background:hsl(var(--accent)/.5); }
+table.cp-grid td.num, table.cp-grid th.num{ text-align:right; font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; }
+.cp-rankin{ width:4rem; text-align:right; border:1px solid hsl(var(--input)); border-radius:.375rem;
+  background:hsl(var(--background)); padding:.2rem .4rem; font-family:'JetBrains Mono',monospace; }
+.cp-rankin:focus{ outline:2px solid hsl(var(--ring)); }
+.cp-sticky-l{ position:sticky; left:0; background:hsl(var(--card)); z-index:1; }
+table.cp-grid thead .cp-sticky-l{ z-index:3; background:hsl(var(--muted)); }
+.cp-file{ width:100%; font-size:.8rem; color:hsl(var(--muted-foreground)); }
+.cp-file::file-selector-button{ margin-right:.6rem; border:1px solid hsl(var(--border)); border-radius:.4rem;
+  background:hsl(var(--secondary)); color:hsl(var(--secondary-foreground)); padding:.35rem .7rem;
+  font-size:.78rem; font-weight:600; cursor:pointer; }
+.cp-file::file-selector-button:hover{ background:hsl(var(--accent)); }
+.cp-filetab{ padding:.4rem .7rem; border-radius:.5rem; border:1px solid hsl(var(--border));
+  font-size:.78rem; font-weight:600; cursor:pointer; white-space:nowrap; }
+.cp-filetab[data-on="1"]{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:transparent; }
+.cp-kwcol{ background:hsl(var(--accent)/.4); font-weight:600; }
+.cp-tagsel{ border:1px solid hsl(var(--input)); border-radius:.375rem; background:hsl(var(--background));
+  padding:.15rem .35rem; font-size:.75rem; }
+.cp-tag-Y{ color:hsl(var(--success)); font-weight:700; }
+.cp-tag-N{ color:hsl(var(--muted-foreground)); }
+.cp-tag-Competitor{ color:hsl(var(--warning)); font-weight:700; }
+.cp-tag-Brand{ color:hsl(258 90% 60%); font-weight:700; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set cur = request.args.get('step') or project.current_step or 'asins' %}
+<div class="space-y-6">
+
+  <!-- Header -->
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <a href="/campaign" class="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        All projects
+      </a>
+      <h1 class="mt-1 text-2xl font-bold tracking-tight truncate">{{ project.name }}</h1>
+      <p class="text-sm text-muted-foreground">{{ project.profile_name }} · profile <span class="num">{{ project.profile_id }}</span></p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="cp-badge" style="text-transform:capitalize">{{ project.status.replace('_',' ') }}</span>
+      <span class="cp-badge" style="text-transform:capitalize">{{ role }}</span>
+    </div>
+  </div>
+
+  <!-- Progress rail -->
+  <nav class="cp-rail" aria-label="Steps">
+    {% set reached = reached_index|default(0) %}
+    {% for key, label in steps %}
+    {% set state = 'current' if cur==key else ('done' if loop.index0 <= reached else 'todo') %}
+    <a href="?step={{ key }}" class="cp-step" data-state="{{ state }}" data-on="{{ '1' if cur==key else '0' }}">
+      <span class="cp-step-n">
+        {% if state=='done' %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="width:.8rem;height:.8rem"><path d="M20 6 9 17l-5-5"/></svg>{% else %}{{ loop.index }}{% endif %}
+      </span>{{ label }}
+    </a>
+    {% endfor %}
+  </nav>
+
+  <!-- Step panel -->
+  <div id="panel" data-pid="{{ project.id }}" data-step="{{ cur }}">
+
+    {% if cur == 'profile' %}
+    <section class="cp-card p-6">
+      <h2 class="text-lg font-semibold mb-1">Profile</h2>
+      <p class="text-sm text-muted-foreground">Connected to <strong>{{ project.profile_name }}</strong>. Continue to load ASIN metrics from AdLabs.</p>
+      <a href="?step=asins" class="mt-4 inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue</a>
+    </section>
+
+    {% elif cur == 'asins' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-semibold">ASIN Dashboard</h2>
+          <p class="text-sm text-muted-foreground">Live ASIN metrics from AdLabs. Rank is auto-computed from Sales, CVR & ACOS — edit any value to override.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="daysSel" class="rounded-md border border-input bg-background px-2 py-1.5 text-sm">
+            <option value="30">Last 30 days</option>
+            <option value="90" selected>Last 90 days</option>
+            <option value="180">Last 180 days</option>
+          </select>
+          <button onclick="loadAsins(true)" class="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent transition">Refresh</button>
+        </div>
+      </div>
+      <div id="asinHost"><p class="text-sm text-muted-foreground py-8 text-center">Loading ASIN metrics…</p></div>
+      <div class="mt-4 flex items-center justify-between">
+        <p id="asinMeta" class="text-xs text-muted-foreground"></p>
+        <button id="asinNext" onclick="saveAsins(true)" disabled
+          class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50">
+          Save &amp; continue
+        </button>
+      </div>
+    </section>
+
+    {% elif cur == 'seed' %}
+    {% set ns = namespace(all_ok=true) %}
+    {% for s in seed_subs %}{% if approvals[s.key] != 'approved' %}{% set ns.all_ok = false %}{% endif %}{% endfor %}
+    <div class="space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold">Seed keywords &amp; ASINs</h2>
+        <p class="text-sm text-muted-foreground">Enter each input, then <strong>Save &amp; Exit</strong> to send it for manager approval. Once all three are approved you can continue to uploads.</p>
+      </div>
+
+      {% for s in seed_subs %}
+      {% set status = approvals[s.key] %}
+      <section class="cp-card p-5" data-gate="{{ s.key }}">
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <h3 class="font-semibold">{{ s.label }}</h3>
+          <span class="cp-badge"
+            style="{% if status=='approved' %}background:hsl(var(--success)/.12);color:hsl(var(--success)){% elif status=='awaiting' %}background:hsl(var(--warning)/.12);color:hsl(var(--warning)){% else %}background:hsl(var(--muted));color:hsl(var(--muted-foreground)){% endif %}">
+            {% if status=='approved' %}Approved{% elif status=='awaiting' %}Awaiting approval{% else %}Draft{% endif %}
+          </span>
+        </div>
+        <textarea id="seed_{{ s.key }}" rows="4"
+          {% if status=='approved' %}readonly{% endif %}
+          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring {% if status=='approved' %}opacity-70{% endif %}"
+          placeholder="{% if s.kind=='asins' %}One ASIN per line (e.g. B0DSY8FV5D){% else %}One customer-need keyword per line{% endif %}">{{ (state.get(s.key) or {}).get('raw','') }}</textarea>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <div id="acts_{{ s.key }}" class="flex flex-wrap items-center gap-2 {% if status=='approved' %}hidden{% endif %}">
+            <button onclick="saveSeed('{{ s.key }}','draft')" class="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent transition">Save draft</button>
+            <button onclick="saveSeed('{{ s.key }}','submit')" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save &amp; Exit (request approval)</button>
+          </div>
+          {% if status=='approved' %}
+          <button id="edit_{{ s.key }}" onclick="editSeed('{{ s.key }}')" class="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent transition inline-flex items-center gap-1.5">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            Edit
+          </button>
+          <span id="editnote_{{ s.key }}" class="text-xs text-muted-foreground hidden">Editing — re-submit to request approval again.</span>
+          {% endif %}
+          {% if is_manager and status=='awaiting' %}
+          <button onclick="approveSeed('{{ s.key }}')" class="rounded-md px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition" style="background:hsl(var(--success))">Approve</button>
+          {% endif %}
+        </div>
+      </section>
+      {% endfor %}
+
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-muted-foreground">{% if ns.all_ok %}All gates approved.{% else %}Waiting on approvals before you can continue.{% endif %}</p>
+        <button onclick="advanceTo('uploads')" {% if not ns.all_ok %}disabled{% endif %}
+          class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          Continue to uploads
+        </button>
+      </div>
+    </div>
+
+    {% elif cur == 'uploads' %}
+    <section class="cp-card p-5">
+      <h2 class="text-lg font-semibold">Upload research files</h2>
+      <p class="text-sm text-muted-foreground mb-4">Upload the raw exports. Headers are auto-detected — the control-panel preamble is stripped automatically. You can re-upload to add more.</p>
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div><label class="block text-sm font-medium mb-1">Product Opportunity Explorer <span class="text-muted-foreground">(one per product; filename = product)</span></label>
+          <input type="file" name="poe_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div><label class="block text-sm font-medium mb-1">H10 Reverse ASIN</label>
+          <input type="file" name="h10_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div><label class="block text-sm font-medium mb-1">Brand Analytics (w/ Reverse ASIN)</label>
+          <input type="file" name="brand_analytics_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div><label class="block text-sm font-medium mb-1">SQP Reports <span class="text-muted-foreground">(≤3; filename = ASIN)</span></label>
+          <input type="file" name="sqp_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div><label class="block text-sm font-medium mb-1">Brand (H10 Reverse ASIN)</label>
+          <input type="file" name="brand_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div><label class="block text-sm font-medium mb-1">BA TST files <span class="text-muted-foreground">(filename = filter word)</span></label>
+          <input type="file" name="ba_tst_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
+        <div class="sm:col-span-2"><label class="block text-sm font-medium mb-1">Search Term Report <span class="text-muted-foreground">(optional — enables Sales/Orders/ACoS)</span></label>
+          <input type="file" name="str_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
+      </div>
+      <div class="mt-4 flex items-center gap-2">
+        <button onclick="uploadFiles()" id="upBtn" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Upload files</button>
+        <span id="upMsg" class="text-xs text-muted-foreground"></span>
+      </div>
+
+      <div class="mt-6">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Uploaded</h3>
+        <div id="upList" class="space-y-1.5"><p class="text-sm text-muted-foreground">None yet.</p></div>
+      </div>
+
+      <div class="mt-6 flex justify-end">
+        <button onclick="advanceTo('keywords')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to keyword selection</button>
+      </div>
+    </section>
+
+    {% elif cur == 'keywords' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div><h2 class="text-lg font-semibold">Keyword selection</h2>
+          <p class="text-sm text-muted-foreground">Tag each keyword: <strong>Y</strong> (target) · <strong>N</strong> (skip) · <strong>Competitor</strong> · <strong>Brand</strong>. Only <strong>Y</strong> keywords flow into Semantics.</p></div>
+        <button onclick="advanceTo('semantics')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Semantics</button>
+      </div>
+      <div id="kwFiles" class="flex flex-wrap gap-2 mb-3"></div>
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <input id="kwFilter" oninput="renderGrid()" placeholder="Filter keywords…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
+        <span class="text-xs text-muted-foreground">Bulk set <span title="Applies to checked rows; if none are checked, applies to all filtered rows">(checked / filtered)</span>:</span>
+        {% for t in ['Y','N','Competitor','Brand'] %}
+        <button onclick="bulkSet('{{ t }}')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">{{ t }}</button>
+        {% endfor %}
+        <button onclick="bulkSet('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
+        <span id="kwCounts" class="text-xs text-muted-foreground ml-auto"></span>
+        <button onclick="saveKw()" id="kwSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
+      </div>
+      <div id="kwHost"><p class="text-sm text-muted-foreground py-8 text-center">Select a file above to begin.</p></div>
+    </section>
+
+    {% elif cur == 'asin_sel' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div><h2 class="text-lg font-semibold">ASIN selection (PAT)</h2>
+          <p class="text-sm text-muted-foreground">Tag competitor ASINs by type: <strong>Main</strong> · <strong>Low Rated</strong> · <strong>High Priced</strong> · <strong>Bestselling</strong>. <strong>Non-relevant</strong> is excluded. These build the PAT tab.</p></div>
+        <button onclick="advanceTo('master')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Master Keywords</button>
+      </div>
+      <div id="asFiles" class="flex flex-wrap gap-2 mb-3"></div>
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <input id="asFilter" oninput="renderAsinGrid()" placeholder="Filter ASIN / context…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
+        <span class="text-xs text-muted-foreground">Bulk set filtered:</span>
+        {% for t in ['Main','Low Rated','High Priced','Bestselling','Non-relevant'] %}
+        <button onclick="bulkAsin('{{ t }}')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">{{ t }}</button>
+        {% endfor %}
+        <button onclick="bulkAsin('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
+        <span id="asCounts" class="text-xs text-muted-foreground ml-auto"></span>
+        <button onclick="saveAsinTags()" id="asSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
+      </div>
+      <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Select a file above to begin.</p></div>
+    </section>
+
+    {% elif cur == 'semantics' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div><h2 class="text-lg font-semibold">Semantics preview</h2>
+          <p class="text-sm text-muted-foreground">Keywords tagged <strong>Y</strong>, with the generated root category and the SV-digit campaign rule applied. Search volume &amp; bids are live formulas in the workbook.</p></div>
+        <button onclick="advanceTo('asin_sel')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to ASIN selection</button>
+      </div>
+      <div id="asmRoots" class="mb-3"></div>
+      <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
+    </section>
+
+    {% elif cur == 'master' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div><h2 class="text-lg font-semibold">Master Keywords preview</h2>
+          <p class="text-sm text-muted-foreground">Competitor- and Brand-tagged keywords, with names pulled from each file's brand column.</p></div>
+        <button onclick="advanceTo('campaigns')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Campaigns</button>
+      </div>
+      <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
+    </section>
+
+    {% elif cur == 'campaigns' %}
+    <section class="cp-card p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div><h2 class="text-lg font-semibold">Campaign Naming &amp; Bids preview</h2>
+          <p class="text-sm text-muted-foreground">Generated campaigns (keyword + PAT). Names follow the sheet formula; bids compute live from CVR.</p></div>
+        <button onclick="advanceTo('build')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Verify &amp; Build</button>
+      </div>
+      <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
+    </section>
+
+    {% elif cur == 'build' %}
+    <section class="cp-card p-5">
+      <h2 class="text-lg font-semibold mb-1">Verify &amp; Build</h2>
+      <p class="text-sm text-muted-foreground mb-4">Review the summary, then generate the workbook with live formulas.</p>
+      <div id="buildSummary" class="grid gap-3 sm:grid-cols-3 mb-4"></div>
+      <div class="flex items-center gap-3">
+        <button onclick="doBuild()" id="buildBtn" class="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Generate workbook</button>
+        <span id="buildMsg" class="text-sm text-muted-foreground"></span>
+      </div>
+      <div id="buildResult" class="hidden mt-5 rounded-lg border border-success/40 p-4" style="background:hsl(var(--success)/.08)">
+        <p class="font-medium">Workbook ready</p>
+        <p id="buildMeta" class="mt-1 text-xs text-muted-foreground"></p>
+        <a id="buildDl" href="#" class="mt-3 inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-semibold hover:bg-accent transition">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
+          Download .xlsx
+        </a>
+      </div>
+    </section>
+
+    {% else %}
+    <section class="cp-card p-10 text-center">
+      <p class="text-muted-foreground">Unknown step.</p>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+const PID=document.getElementById('panel').dataset.pid;
+const STEP=document.getElementById('panel').dataset.step;
+let ASINS=[], OVERRIDES={}, SELECTED=new Set();
+
+if(STEP==='asins') loadAsins(false);
+
+// ---- Seed gates ----
+async function saveSeed(key, action){
+  const ta=document.getElementById('seed_'+key);
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/seed/${key}`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({content:ta.value, action})}).then(r=>r.json());
+    if(!r.success){ toast(r.error||'Save failed','error'); return; }
+    if(r.submitted){ toast('Submitted for approval','success'); setTimeout(()=>location.assign('?step=seed'),500); }
+    else { toast('Draft saved','success'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+}
+function editSeed(key){
+  const ta=document.getElementById('seed_'+key);
+  if(ta){ ta.removeAttribute('readonly'); ta.classList.remove('opacity-70'); ta.focus(); }
+  const acts=document.getElementById('acts_'+key); if(acts) acts.classList.remove('hidden');
+  const eb=document.getElementById('edit_'+key); if(eb) eb.classList.add('hidden');
+  const note=document.getElementById('editnote_'+key); if(note) note.classList.remove('hidden');
+}
+async function approveSeed(key){
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/approve`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({step_key:key})}).then(r=>r.json());
+    if(r.success){ toast('Approved','success'); window.location.reload(); }
+    else { toast(r.error||'Approve failed','error'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+}
+// ---- Uploads ----
+if(STEP==='uploads') refreshUploads();
+async function uploadFiles(){
+  const fd=new FormData();
+  let any=false;
+  document.querySelectorAll('input.cp-file').forEach(inp=>{
+    for(const f of inp.files){ fd.append(inp.name, f); any=true; } });
+  if(!any){ toast('Choose at least one file','error'); return; }
+  const btn=document.getElementById('upBtn'); btn.disabled=true; btn.textContent='Uploading…';
+  document.getElementById('upMsg').textContent='Parsing uploads…';
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/uploads`,{method:'POST',body:fd}).then(r=>r.json());
+    if(r.success){ toast(`${r.added} file(s) uploaded`,'success'); renderUploads(r.uploads);
+      document.querySelectorAll('input.cp-file').forEach(i=>i.value=''); }
+    else toast(r.error||'Upload failed','error');
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+  finally{ btn.disabled=false; btn.textContent='Upload files'; document.getElementById('upMsg').textContent=''; }
+}
+async function refreshUploads(){
+  try{ const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
+    if(r.success) renderUploads(r.uploads); }catch(e){}
+}
+function renderUploads(uploads){
+  const host=document.getElementById('upList');
+  if(!host) return;
+  if(!uploads||!uploads.length){ host.innerHTML='<p class="text-sm text-muted-foreground">None yet.</p>'; return; }
+  host.innerHTML=uploads.map(u=>`
+    <div class="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+      <div class="min-w-0">
+        <span class="cp-badge mr-2">${esc(u.source)}</span>
+        <span class="text-sm font-medium">${esc(u.label)}</span>
+        <span class="text-xs text-muted-foreground">· ${esc(u.filename)} · ${u.rowcount} rows</span>
+      </div>
+      <button onclick="delUpload('${u.filekey}')" class="text-xs text-danger hover:underline shrink-0">Remove</button>
+    </div>`).join('');
+}
+async function delUpload(filekey){
+  try{ const r=await fetch(`/campaign/projects/${PID}/uploads/${filekey}/delete`,{method:'POST'}).then(r=>r.json());
+    if(r.success) renderUploads(r.uploads); }catch(e){ toast('Network error','error'); }
+}
+
+// ---- Keyword selection grids ----
+let KW_UP=[], KW_CUR=null, KW_DATA=null, KW_SEL={}, KW_CHECK=new Set();
+if(STEP==='keywords') initKw();
+async function initKw(){
+  const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
+  KW_UP=(r.uploads||[]).filter(u=>u.has_grid);   // include even if kw col not auto-detected
+  const host=document.getElementById('kwFiles');
+  if(!KW_UP.length){
+    host.innerHTML='<div class="rounded-md border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">'+
+      'No keyword files uploaded yet for this project. '+
+      '<a href="?step=uploads" class="font-semibold text-foreground underline">Go to Uploads</a> to add them.</div>';
+    document.getElementById('kwHost').innerHTML='';
+    return;
+  }
+  host.innerHTML=KW_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openKwFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
+  openKwFile(0);
+}
+function kcFallback(cols){
+  const toks=['search term','keyword phrase','search query','keyword'];
+  for(const t of toks){ const i=cols.findIndex(c=>(c||'').toLowerCase().includes(t)); if(i>=0) return i; }
+  return 0;
+}
+async function openKwFile(i){
+  KW_CUR=KW_UP[i];
+  document.querySelectorAll('#kwFiles .cp-filetab').forEach(b=>b.setAttribute('data-on', b.dataset.i==i?'1':'0'));
+  document.getElementById('kwHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
+  const r=await fetch(`/campaign/projects/${PID}/table/${KW_CUR.filekey}`).then(r=>r.json());
+  if(!r.success){ document.getElementById('kwHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load table</p>'; return; }
+  KW_DATA=r; KW_SEL=r.selections||{}; KW_CHECK=new Set();
+  if(KW_DATA.keyword_col==null) KW_DATA.keyword_col=kcFallback(KW_DATA.columns);
+  renderGrid();
+}
+function kwFiltered(){
+  if(!KW_DATA) return [];
+  const kc=KW_DATA.keyword_col, q=(document.getElementById('kwFilter').value||'').trim().toLowerCase();
+  const out=[];
+  KW_DATA.rows.forEach((row,ri)=>{
+    const kw=(row[kc]==null?'':row[kc]).toString().toLowerCase();
+    if(!q || kw.includes(q)) out.push(ri);
+  });
+  return out;
+}
+function renderGrid(){
+  if(!KW_DATA){ toast('Select a file first','info'); return; }
+  const host=document.getElementById('kwHost');
+  const kc=KW_DATA.keyword_col, cols=KW_DATA.columns;
+  const visible=kwFiltered();
+  const allChecked=visible.length>0 && visible.every(ri=>KW_CHECK.has(ri));
+  let head='<tr><th class="cp-sticky-l"><input type="checkbox" id="kwAll" ' +
+    (allChecked?'checked':'') + ' onchange="toggleKwAll(this)"></th><th class="num">#</th>';
+  cols.forEach((c,ci)=>{ head+=`<th class="${ci===kc?'cp-kwcol':''}">${esc(c)}</th>`;
+    if(ci===kc) head+='<th class="cp-kwcol">Select</th>'; });
+  head+='</tr>';
+  let body='';
+  visible.forEach(ri=>{
+    const row=KW_DATA.rows[ri], tag=KW_SEL[ri]||'';
+    let tds=`<td class="cp-sticky-l"><input type="checkbox" data-ri="${ri}" ${KW_CHECK.has(ri)?'checked':''} onchange="toggleKwCheck(${ri},this)"></td>`;
+    tds+=`<td class="num">${ri+1}</td>`;
+    row.forEach((v,ci)=>{ tds+=`<td class="${ci===kc?'cp-kwcol':''}">${esc((v==null?'':v).toString().slice(0,80))}</td>`;
+      if(ci===kc) tds+=`<td class="cp-kwcol">${tagSelect(ri,tag)}</td>`; });
+    body+=`<tr>${tds}</tr>`;
+  });
+  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`
+    + `<p class="text-xs text-muted-foreground mt-2">Showing ${visible.length} of ${KW_DATA.total} row(s)`
+    + (KW_DATA.truncated?` (first ${KW_DATA.rows.length} loaded)`:'') + `.</p>`;
+  updateCounts();
+}
+function tagSelect(ri,tag){
+  const opts=['','Y','N','Competitor','Brand'].map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
+  return `<select class="cp-tagsel cp-tag-${tag}" onchange="setTag(${ri},this)">${opts}</select>`;
+}
+function setTag(ri,el){ const v=el.value; if(v) KW_SEL[ri]=v; else delete KW_SEL[ri];
+  el.className='cp-tagsel cp-tag-'+v; updateCounts(); }
+function toggleKwCheck(ri,el){ if(el.checked) KW_CHECK.add(ri); else KW_CHECK.delete(ri);
+  const all=document.getElementById('kwAll'); if(all){ const v=kwFiltered(); all.checked=v.length>0&&v.every(i=>KW_CHECK.has(i)); } }
+function toggleKwAll(el){ const v=kwFiltered();
+  if(el.checked) v.forEach(ri=>KW_CHECK.add(ri)); else v.forEach(ri=>KW_CHECK.delete(ri));
+  document.querySelectorAll('#kwHost input[data-ri]').forEach(cb=>cb.checked=el.checked); }
+function bulkSet(tag){
+  if(!KW_DATA){ toast('Select a file first','info'); return; }
+  // Apply to checked rows if any are checked; otherwise to all filtered rows.
+  let targets=[...KW_CHECK];
+  if(!targets.length) targets=kwFiltered();
+  if(!targets.length){ toast('No matching rows','info'); return; }
+  targets.forEach(ri=>{ if(tag) KW_SEL[ri]=tag; else delete KW_SEL[ri]; });
+  toast(`${tag||'Cleared'} → ${targets.length} keyword(s)`,'success');
+  renderGrid();
+}
+function updateCounts(){
+  const c={Y:0,N:0,Competitor:0,Brand:0};
+  Object.values(KW_SEL).forEach(v=>{ if(c[v]!=null) c[v]++; });
+  document.getElementById('kwCounts').textContent=
+    `${KW_CUR?esc(KW_CUR.label)+': ':''}Y ${c.Y} · N ${c.N} · Comp ${c.Competitor} · Brand ${c.Brand} · ${KW_CHECK.size} checked`;
+}
+async function saveKw(){
+  if(!KW_CUR){ toast('Select a file first','info'); return; }
+  const btn=document.getElementById('kwSave'); btn.disabled=true; btn.textContent='Saving…';
+  try{ const r=await fetch(`/campaign/projects/${PID}/selections/${KW_CUR.filekey}`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({selections:KW_SEL})}).then(r=>r.json());
+    toast(r.success?'Saved':'Save failed', r.success?'success':'error');
+  }catch(e){ toast('Network error','error'); }
+  finally{ btn.disabled=false; btn.textContent='Save selections'; }
+}
+
+// ---- ASIN selection (PAT) ----
+let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={};
+const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
+if(STEP==='asin_sel') initAsin();
+async function initAsin(){
+  const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
+  AS_UP=(r.uploads||[]).filter(u=>(u.asin_cols||[]).length>0);
+  const host=document.getElementById('asFiles');
+  if(!AS_UP.length){ host.innerHTML='<p class="text-sm text-muted-foreground">No files with ASIN columns. Go back to Uploads.</p>'; return; }
+  host.innerHTML=AS_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openAsinFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
+  openAsinFile(0);
+}
+async function openAsinFile(i){
+  AS_CUR=AS_UP[i];
+  document.querySelectorAll('#asFiles .cp-filetab').forEach(b=>b.setAttribute('data-on', b.dataset.i==i?'1':'0'));
+  document.getElementById('asHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
+  const r=await fetch(`/campaign/projects/${PID}/asin-table/${AS_CUR.filekey}`).then(r=>r.json());
+  if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load</p>'; return; }
+  AS_DATA=r; AS_TAGS=Object.assign(AS_TAGS, r.tags||{});
+  renderAsinGrid();
+}
+function renderAsinGrid(){
+  if(!AS_DATA) return;
+  const host=document.getElementById('asHost');
+  if(!AS_DATA.asins.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in this file.</p>'; return; }
+  const q=(document.getElementById('asFilter').value||'').toLowerCase();
+  let body='';
+  AS_DATA.asins.forEach((a,idx)=>{
+    if(q && !(a.asin+' '+a.context).toLowerCase().includes(q)) return;
+    const tag=AS_TAGS[a.asin]||'';
+    body+=`<tr><td class="cp-sticky-l num">${idx+1}</td><td class="num">${esc(a.asin)}</td>
+      <td>${esc(a.context||'—')}</td><td class="text-muted-foreground">${esc(a.col||'')}</td>
+      <td>${asinSelect(a.asin,tag)}</td></tr>`;
+  });
+  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid">
+    <thead><tr><th class="cp-sticky-l">#</th><th>ASIN</th><th>Context</th><th>Column</th><th class="cp-kwcol">PAT type</th></tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+  updateAsinCounts();
+}
+function asinSelect(asin,tag){
+  const opts=PAT_OPTS.map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
+  return `<select class="cp-tagsel" onchange="setAsinTag('${esc(asin)}',this.value)">${opts}</select>`;
+}
+function setAsinTag(asin,v){ if(v) AS_TAGS[asin]=v; else delete AS_TAGS[asin]; updateAsinCounts(); }
+function bulkAsin(tag){
+  if(!AS_DATA) return;
+  const q=(document.getElementById('asFilter').value||'').toLowerCase();
+  AS_DATA.asins.forEach(a=>{ if(q && !(a.asin+' '+a.context).toLowerCase().includes(q)) return;
+    if(tag) AS_TAGS[a.asin]=tag; else delete AS_TAGS[a.asin]; });
+  renderAsinGrid();
+}
+function updateAsinCounts(){
+  const c={};
+  Object.values(AS_TAGS).forEach(v=>{ c[v]=(c[v]||0)+1; });
+  document.getElementById('asCounts').textContent=PAT_OPTS.slice(1).map(t=>`${t} ${c[t]||0}`).join(' · ');
+}
+async function saveAsinTags(){
+  const btn=document.getElementById('asSave'); btn.disabled=true; btn.textContent='Saving…';
+  try{ const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json());
+    toast(r.success?`Saved (${r.count} tagged)`:'Save failed', r.success?'success':'error');
+  }catch(e){ toast('Network error','error'); }
+  finally{ btn.disabled=false; btn.textContent='Save selections'; }
+}
+
+// ---- Assemble preview (semantics / master / campaigns / build) ----
+let ASM=null;
+if(['semantics','master','campaigns','build'].includes(STEP)) loadAssemble();
+async function loadAssemble(){
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/assemble`).then(r=>r.json());
+    if(!r.success){ asmErr(r.error||'Failed to assemble'); return; }
+    ASM=r;
+    if(STEP==='semantics') renderSemantics();
+    else if(STEP==='master') renderMaster();
+    else if(STEP==='campaigns') renderCampaigns();
+    else if(STEP==='build') renderBuild();
+  }catch(e){ asmErr('Network error: '+(e.message||e)); }
+}
+function asmErr(m){ const h=document.getElementById('asmHost')||document.getElementById('buildSummary');
+  if(h) h.innerHTML='<p class="text-sm text-danger py-6 text-center">'+esc(m)+'</p>'; }
+function gridTable(cols, rows){
+  const head='<tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr>';
+  const body=rows.map(r=>'<tr>'+r.map(c=>`<td>${esc(c==null?'':c)}</td>`).join('')+'</tr>').join('');
+  return `<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+function renderSemantics(){
+  const roots=ASM.meta.roots||[];
+  document.getElementById('asmRoots').innerHTML='<span class="text-xs text-muted-foreground mr-2">Root keywords:</span>'+
+    (roots.length?roots.map(r=>`<span class="cp-badge mr-1">${esc(r)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>');
+  const rows=ASM.semantics.map(s=>[s.keyword,s.source,s.category,s.type,s.match]);
+  document.getElementById('asmHost').innerHTML=
+    `<p class="text-xs text-muted-foreground mb-2">${rows.length} keyword(s) into Semantics</p>`+
+    gridTable(['Keyword','Source','Root / Category','Type','Match'], rows);
+}
+function renderMaster(){
+  const m=ASM.master;
+  const sec=(title,items)=>`<div class="cp-card p-4"><h3 class="font-semibold text-sm mb-2">${esc(title)} <span class="text-muted-foreground">(${items.length})</span></h3>
+    <div class="flex flex-wrap gap-1">${items.length?items.map(x=>`<span class="cp-badge">${esc(x)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>'}</div></div>`;
+  document.getElementById('asmHost').innerHTML='<div class="grid gap-3 sm:grid-cols-2">'+
+    sec('Own branded keywords',m.own_branded_kws)+sec('Own branded searches',m.own_branded_searches)+
+    sec('Competitor keywords',m.competitor_kws)+sec('Competitor searches',m.competitor_searches)+
+    sec('Own brand ASINs',m.own_brand_asins)+'</div>';
+}
+function renderCampaigns(){
+  const rows=ASM.campaigns.map(c=>[c.name,c.type,c.match,c.root]);
+  document.getElementById('asmHost').innerHTML=
+    `<p class="text-xs text-muted-foreground mb-2">${rows.length} campaign(s) · ${ASM.pat.length} PAT target(s)</p>`+
+    gridTable(['Campaign name','Type','Match','Root'], rows);
+}
+function renderBuild(){
+  const m=ASM.meta;
+  const card=(label,val)=>`<div class="cp-card p-4"><p class="text-xs text-muted-foreground">${esc(label)}</p><p class="text-xl font-bold num">${esc(val)}</p></div>`;
+  document.getElementById('buildSummary').innerHTML=
+    card('Semantics keywords',m.semantics)+card('Campaigns',m.campaigns)+card('PAT targets',m.pat_targets)+
+    card('Competitor brands',m.competitors)+card('Root keywords',(m.roots||[]).length)+
+    `<div class="cp-card p-4"><p class="text-xs text-muted-foreground">CVR source</p><p class="text-sm font-semibold mt-1">${esc(m.cvr_source)}</p></div>`;
+}
+async function doBuild(){
+  const btn=document.getElementById('buildBtn'); btn.disabled=true; btn.textContent='Building…';
+  document.getElementById('buildMsg').textContent='Generating workbook with live formulas…';
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/build`,{method:'POST'}).then(r=>r.json());
+    if(r.success){
+      document.getElementById('buildDl').href=r.download;
+      document.getElementById('buildMeta').textContent=
+        `${r.meta.semantics} Semantics · ${r.meta.campaigns} campaigns · ${r.meta.pat_targets} PAT · CVR from ${r.meta.cvr_source}`;
+      document.getElementById('buildResult').classList.remove('hidden');
+      toast('Workbook generated','success');
+    } else { toast(r.error||'Build failed','error'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+  finally{ btn.disabled=false; btn.textContent='Generate workbook'; document.getElementById('buildMsg').textContent=''; }
+}
+
+async function advanceTo(to){
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/advance`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({to})}).then(r=>r.json());
+    if(r.success){ window.location=r.redirect; }
+    else { toast(r.error||'Cannot continue yet','error'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+}
+
+async function loadAsins(refresh){
+  const host=document.getElementById('asinHost');
+  host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading ASIN metrics from AdLabs…</p>';
+  const days=document.getElementById('daysSel').value;
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/asins?days=${days}`+(refresh?'&refresh=1':'')).then(r=>r.json());
+    if(!r.success){ host.innerHTML='<p class="text-sm text-danger py-8 text-center">'+esc(r.error||'Failed to load')+'</p>'; return; }
+    ASINS=r.products||[]; OVERRIDES=(r.overrides)||{}; SELECTED=new Set(r.selected||ASINS.map(p=>p.asin));
+    renderAsins(r.cached);
+  }catch(e){ host.innerHTML='<p class="text-sm text-danger py-8 text-center">Network error</p>'; }
+}
+
+function fmt(n,d=0){ if(n===null||n===undefined||n==='') return '—'; const x=Number(n);
+  return isNaN(x)?'—':x.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function pct(n){ if(n===null||n===undefined) return '—'; return (Number(n)*100).toFixed(1)+'%'; }
+
+function renderAsins(cached){
+  const host=document.getElementById('asinHost');
+  if(!ASINS.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs with activity for this profile / range.</p>'; return; }
+  const rows=[...ASINS].sort((a,b)=>(eff(a)-eff(b)));
+  const head=`<thead><tr>
+    <th class="cp-sticky-l"><input type="checkbox" id="selAll" onchange="toggleAll(this)"></th>
+    <th class="num">Rank</th><th>ASIN</th><th>SKU</th><th>Product</th>
+    <th class="num">Impr.</th><th class="num">Clicks</th><th class="num">CTR</th>
+    <th class="num">Sales</th><th class="num">Orders</th><th class="num">ACOS</th>
+    <th class="num">CVR</th><th class="num">Price</th><th class="num">ASP</th></tr></thead>`;
+  const body=rows.map(p=>`<tr>
+    <td class="cp-sticky-l"><input type="checkbox" data-asin="${esc(p.asin)}" ${SELECTED.has(p.asin)?'checked':''} onchange="toggleOne('${esc(p.asin)}',this)"></td>
+    <td class="num"><input class="cp-rankin" type="number" min="1" step="1" value="${eff(p)}" onchange="setRank('${esc(p.asin)}',this.value)"></td>
+    <td class="num">${esc(p.asin)}</td>
+    <td>${esc(p.sku||'—')}</td>
+    <td title="${esc(p.name)}">${esc((p.name||'').slice(0,48))}${(p.name||'').length>48?'…':''}</td>
+    <td class="num">${fmt(p.impressions)}</td><td class="num">${fmt(p.clicks)}</td><td class="num">${pct(p.ctr)}</td>
+    <td class="num">${fmt(p.sales,0)}</td><td class="num">${fmt(p.orders)}</td><td class="num">${pct(p.acos)}</td>
+    <td class="num">${pct(p.cvr)}</td><td class="num">${fmt(p.price,2)}</td><td class="num">${fmt(p.asp,2)}</td>
+  </tr>`).join('');
+  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid">${head}<tbody>${body}</tbody></table></div>`;
+  document.getElementById('asinMeta').textContent=`${ASINS.length} ASIN(s) · ${SELECTED.size} selected${cached?' · cached':''}`;
+  document.getElementById('asinNext').disabled=false;
+  syncSelAll();
+}
+function eff(p){ return OVERRIDES[p.asin]!=null ? OVERRIDES[p.asin] : p.rank; }
+function setRank(asin,v){ const n=parseInt(v,10); if(!isNaN(n)) OVERRIDES[asin]=n; }
+function toggleOne(asin,el){ if(el.checked) SELECTED.add(asin); else SELECTED.delete(asin);
+  document.getElementById('asinMeta').textContent=`${ASINS.length} ASIN(s) · ${SELECTED.size} selected`; syncSelAll(); }
+function toggleAll(el){ SELECTED=new Set(el.checked?ASINS.map(p=>p.asin):[]);
+  document.querySelectorAll('[data-asin]').forEach(c=>c.checked=el.checked);
+  document.getElementById('asinMeta').textContent=`${ASINS.length} ASIN(s) · ${SELECTED.size} selected`; }
+function syncSelAll(){ const all=document.getElementById('selAll'); if(all) all.checked=SELECTED.size===ASINS.length&&ASINS.length>0; }
+
+async function saveAsins(advance){
+  const btn=document.getElementById('asinNext'); btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/asins`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({overrides:OVERRIDES, selected:[...SELECTED], advance:!!advance})}).then(r=>r.json());
+    if(r.success){ if(advance){ window.location='?step=seed'; } else { toast('Saved','success'); btn.disabled=false; btn.textContent='Save & continue'; } }
+    else { toast(r.error||'Save failed','error'); btn.disabled=false; btn.textContent='Save & continue'; }
+  }catch(e){ toast('Network error','error'); btn.disabled=false; btn.textContent='Save & continue'; }
+}
+</script>
+{% endblock %}

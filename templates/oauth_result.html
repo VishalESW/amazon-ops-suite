@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Authorization{% endblock %}
+{% block content %}
+<div class="mx-auto max-w-md text-center rounded-xl border border-border bg-card p-8 shadow-soft fadeup">
+  {% if ok %}
+  <div class="mx-auto grid h-14 w-14 place-items-center rounded-full" style="background:hsl(142 71% 45% / .12)">
+    <svg class="h-7 w-7 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+  </div>
+  <h1 class="mt-4 text-xl font-bold">Success</h1>
+  {% else %}
+  <div class="mx-auto grid h-14 w-14 place-items-center rounded-full" style="background:hsl(0 72% 51% / .12)">
+    <svg class="h-7 w-7 text-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </div>
+  <h1 class="mt-4 text-xl font-bold">Something went wrong</h1>
+  {% endif %}
+  <p class="mt-2 text-sm text-muted-foreground">{{ message }}</p>
+  <a href="{{ back }}" class="mt-6 inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue</a>
+</div>
+{% endblock %}

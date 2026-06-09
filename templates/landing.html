@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+{% block title %}Amazon Ops Suite — Choose a workspace{% endblock %}
+{% block head %}
+<style>
+  /* Ambient background: soft radial glows + faint grid, theme-aware */
+  .hero-bg{ position:relative; isolation:isolate; }
+  .hero-bg::before{
+    content:""; position:absolute; inset:-20% -10% auto -10%; height:560px; z-index:-1;
+    background:
+      radial-gradient(40% 60% at 20% 0%, hsl(258 90% 60% / .18), transparent 70%),
+      radial-gradient(40% 60% at 80% 10%, hsl(38 92% 50% / .14), transparent 70%),
+      radial-gradient(45% 70% at 50% 0%, hsl(160 84% 39% / .14), transparent 70%);
+    filter:blur(8px);
+  }
+  .grid-bg::after{
+    content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background-image:linear-gradient(hsl(var(--border)/.6) 1px, transparent 1px),
+                    linear-gradient(90deg, hsl(var(--border)/.6) 1px, transparent 1px);
+    background-size:44px 44px;
+    mask-image:radial-gradient(60% 50% at 50% 0%, #000 30%, transparent 80%);
+    opacity:.5;
+  }
+  .gradient-text{
+    background:linear-gradient(120deg, hsl(258 90% 66%), hsl(160 84% 45%) 55%, hsl(38 92% 55%));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .tool-card{ transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease; }
+  .tool-card:hover{ transform:translateY(-4px); }
+  .tool-card:hover .arrow{ transform:translateX(4px); }
+  .arrow{ transition:transform .2s ease; }
+  @media (prefers-reduced-motion: reduce){ .tool-card,.tool-card:hover{ transform:none; } }
+</style>
+{% endblock %}
+{% block content %}
+
+<section class="hero-bg grid-bg -mt-8 pt-12 pb-4">
+  <div class="mx-auto max-w-3xl text-center">
+    <span class="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur">
+      <span class="relative flex h-2 w-2">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60"></span>
+        <span class="relative inline-flex h-2 w-2 rounded-full bg-success"></span>
+      </span>
+      Connected to SP-API · AdLabs · AI
+    </span>
+    <h1 class="mt-6 text-5xl sm:text-6xl font-extrabold tracking-tight leading-[1.05]">
+      Your Amazon operations,<br class="hidden sm:block">
+      <span class="gradient-text">in one console.</span>
+    </h1>
+    <p class="mt-5 text-lg text-muted-foreground">
+      Three focused workspaces for PPC, inventory and bid management — each pulling live
+      data straight from Amazon. Pick one to get started.
+    </p>
+    <div class="mt-7 flex items-center justify-center gap-3">
+      <a href="#tools" class="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">
+        Explore workspaces
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </a>
+      <a href="/inventory" class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-5 py-2.5 text-sm font-semibold hover:bg-accent transition">
+        Connect an account
+      </a>
+    </div>
+  </div>
+
+  <!-- Setup at a glance -->
+  <div class="mx-auto mt-12 grid max-w-4xl gap-3 sm:grid-cols-3">
+    <!-- Seller accounts -->
+    <a href="/inventory" class="group rounded-xl border border-border bg-card/70 p-4 backdrop-blur hover:border-foreground/20 transition">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted-foreground">Seller accounts</span>
+        <svg class="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </div>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="num text-2xl font-bold">{{ status.account_count }}</span>
+        <span class="text-xs text-muted-foreground">connected</span>
+      </div>
+      <p class="mt-1 truncate text-xs text-muted-foreground">
+        {% if status.accounts %}{{ status.accounts|map(attribute='name')|join(', ') }}{% else %}Connect Seller Central to begin{% endif %}
+      </p>
+    </a>
+    <!-- AdLabs / Ads -->
+    <a href="/ads" class="group rounded-xl border border-border bg-card/70 p-4 backdrop-blur hover:border-foreground/20 transition">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted-foreground">Ads · AdLabs</span>
+        <svg class="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full {{ 'bg-success' if status.ads_ready else 'bg-warning' }}"></span>
+        <span class="text-sm font-semibold">{{ 'Connected' if status.ads_ready else 'Not configured' }}</span>
+      </div>
+      <p class="mt-1 text-xs text-muted-foreground">Keyword &amp; placement optimization</p>
+    </a>
+    <!-- AI layer -->
+    <a href="/ads" class="group rounded-xl border border-border bg-card/70 p-4 backdrop-blur hover:border-foreground/20 transition">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted-foreground">AI layer</span>
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="hsl(258 90% 60%)" stroke-width="2" stroke-linecap="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/></svg>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="h-2 w-2 rounded-full {{ 'bg-success' if status.ai_ready else 'bg-warning' }}"></span>
+        <span class="text-sm font-semibold">{{ 'Active' if status.ai_ready else 'Not configured' }}</span>
+      </div>
+      <p class="mt-1 truncate text-xs text-muted-foreground">Summaries &amp; keyword relevancy</p>
+    </a>
+  </div>
+</section>
+
+<!-- Tool cards -->
+<section id="tools" class="mt-14 scroll-mt-24">
+  <div class="flex items-end justify-between gap-4 mb-5">
+    <h2 class="text-xl font-bold tracking-tight">Choose a workspace</h2>
+    <span class="text-sm text-muted-foreground hidden sm:block">Each tool runs independently</span>
+  </div>
+  <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+
+    {% set tools = [
+      {'href':'/ngram','accent':'258 90% 60%','name':'N-Gram Analyzer','badge':'PPC',
+       'desc':'Turn a search-term report into a clean negative-keyword plan.',
+       'icon':'<path d="M4 19V5M4 19h16M8 16l3-4 2 3 4-6"/>',
+       'feats':['Mono / bi / tri-gram extraction','Auto-flags NE & NP wasted spend','Per-campaign Excel export']},
+      {'href':'/inventory','accent':'160 84% 39%','name':'Inventory Transfer','badge':'FBA',
+       'desc':'Connect Seller Central and build the FBA transfer workbook from live data.',
+       'icon':'<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/>',
+       'feats':['Live SP-API report pull','Auto BAND A/B/C/EOL by velocity','Formula-driven 4-sheet workbook']},
+      {'href':'/ads','accent':'38 92% 50%','name':'Ads Bid Optimizer','badge':'AdLabs',
+       'desc':'Pull keyword & placement metrics, review, and apply bid changes.',
+       'icon':'<path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/>',
+       'feats':['Keyword + placement data from AdLabs','4-rule bid engine with AI summary','Apply only after you approve']},
+      {'href':'/harvest','accent':'190 90% 45%','name':'Keyword Harvesting','badge':'AdLabs',
+       'desc':'Mine winning search terms & SQP, negate waste, add keywords to targeting.',
+       'icon':'<path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19"/>',
+       'feats':['Harvest converters from search terms + SQP','AI relevancy flags irrelevant terms','One-click add to campaigns & negate']},
+      {'href':'/dashboard','accent':'217 91% 60%','name':'Ad Performance Dashboard','badge':'AdLabs + SP-API',
+       'desc':'Drill from products to campaigns to keywords with live metrics, SQP & AI.',
+       'icon':'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+       'feats':['Product → campaign → keyword hierarchy','Inventory, price, BSR & sales rank','SQP analytics + AI insights']},
+      {'href':'/campaign','accent':'330 80% 58%','name':'Campaign Processor','badge':'Build',
+       'desc':'Rebuild a full PPC campaign workbook from your uploads with live formulas.',
+       'icon':'<path d="M4 4h16v4H4zM4 12h16M4 12v8M8 12v8M12 12v8M16 12v8M20 12v8"/>',
+       'feats':['Template-driven 20-tab workbook','Live cross-sheet formulas','Built from your uploaded files']}
+    ] %}
+
+    {% for t in tools %}
+    <a href="{{ t.href }}" class="tool-card group relative overflow-hidden rounded-xl border border-border bg-card p-6 shadow-soft hover:shadow-lift"
+       style="--a:{{ t.accent }}">
+      <div class="absolute inset-x-0 top-0 h-1" style="background:hsl(var(--a))"></div>
+      <div class="absolute -right-10 -top-10 h-28 w-28 rounded-full opacity-15 blur-2xl" style="background:hsl(var(--a))"></div>
+      <div class="flex items-center justify-between">
+        <div class="grid h-12 w-12 place-items-center rounded-xl text-white shadow-sm" style="background:hsl(var(--a))">
+          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{ t.icon|safe }}</svg>
+        </div>
+        <span class="rounded-full border border-border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">{{ t.badge }}</span>
+      </div>
+      <h3 class="mt-4 text-lg font-bold">{{ t.name }}</h3>
+      <p class="mt-1.5 text-sm text-muted-foreground">{{ t.desc }}</p>
+      <ul class="mt-4 space-y-2">
+        {% for f in t.feats %}
+        <li class="flex items-start gap-2 text-sm">
+          <svg class="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--a))" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          <span class="text-foreground/80">{{ f }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold" style="color:hsl(var(--a))">
+        Open tool
+        <svg class="arrow h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- How each tool works -->
+<section class="mt-16">
+  <div class="rounded-2xl border border-border bg-card/60 p-8 backdrop-blur">
+    <div class="text-center max-w-xl mx-auto">
+      <h2 class="text-xl font-bold tracking-tight">How each tool works</h2>
+      <p class="mt-2 text-sm text-muted-foreground">Plain and simple — here's what happens inside each workspace.</p>
+    </div>
+    <div class="mt-8 grid gap-5 sm:grid-cols-2">
+      {% for accent, icon, name, steps in [
+        ('258 90% 60%','<path d="M4 19V5M4 19h16M8 16l3-4 2 3 4-6"/>','N-Gram Analyzer',
+          'You upload an Amazon search-term report. It breaks every search into 1-, 2- and 3-word pieces, adds up the spend and sales behind each one, and flags the words that cost money but never sell — so you know exactly what to negate. You download it as a ready-to-use Excel.'),
+        ('160 84% 39%','<path d="M21 16V8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/>','Inventory Transfer',
+          'You connect Seller Central and click one button. It pulls your live FBA stock, a year of sales and your listings, sorts every product into A/B/C/EOL bands by how fast it sells, and builds a formula-driven workbook telling you how much of each SKU to reorder.'),
+        ('38 92% 50%','<path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/>','Ads Bid Optimizer',
+          'You pick a profile and a target ACOS. It pulls every keyword and placement from AdLabs, runs a 4-rule formula to work out a better bid for each, writes a plain-English AI summary, and only updates your live bids after you review and approve.'),
+        ('190 90% 45%','<path d="M11 2a9 9 0 0 0-9 9c0 3.9 2.5 7.2 6 8.5V22h6v-2.5c3.5-1.3 6-4.6 6-8.5a9 9 0 0 0-9-9z"/><path d="M9 11h6"/>','Keyword Harvesting',
+          'It scans your search terms and SQP data and splits them into winners worth targeting and wasters worth blocking. AI checks each one for relevancy. You stage the good keywords, choose which campaign they go into, push them live — and negate the bad ones in one click.'),
+        ('217 91% 60%','<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>','Ad Performance Dashboard',
+          'You pick a profile and a date range. It pulls every product, campaign and keyword from AdLabs and matches each product to your Seller Central account for live inventory, price, image and sales rank. You drill from a product down to its campaigns (grouped by SP / SB / SD) and individual keywords — with variation products grouped under their parent ASIN — then read an AI summary of what to fix and what to scale.'),
+        ('330 80% 58%','<path d="M4 4h16v4H4zM4 12h16M4 12v8M8 12v8M12 12v8M16 12v8M20 12v8"/>','Campaign Processor',
+          'You upload your campaign files and it rebuilds a full multi-tab PPC workbook from a template — wiring up live cross-sheet formulas so keywords, bids and budgets stay in sync. Instead of hand-building each sheet, you get a ready, formula-driven campaign structure you can review and export.')
+      ] %}
+      <div class="rounded-xl border border-border bg-background/50 p-5">
+        <div class="flex items-center gap-3">
+          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white" style="background:hsl({{ accent }})">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{{ icon|safe }}</svg>
+          </span>
+          <h3 class="font-semibold">{{ name }}</h3>
+        </div>
+        <p class="mt-3 text-sm text-muted-foreground leading-relaxed">{{ steps }}</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<!-- Recent exports -->
+<section class="mt-12">
+  <div class="rounded-2xl border border-border bg-card/60 p-6 backdrop-blur">
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-bold tracking-tight">Recent exports</h2>
+        <p class="mt-1 text-sm text-muted-foreground">Your latest generated workbooks — download again in one click.</p>
+      </div>
+      {% if status.archive_count %}
+      <span class="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">{{ status.archive_count }} archived</span>
+      {% endif %}
+    </div>
+
+    {% if status.recent %}
+    <div class="mt-4 divide-y divide-border">
+      {% for f in status.recent %}
+      <div class="flex items-center gap-3 py-3">
+        {% set color = '160 84% 39%' if f.kind == 'Inventory' else ('38 92% 50%' if f.kind == 'ASIN' else '258 90% 60%') %}
+        <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white" style="background:hsl({{ color }})">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium num">{{ f.name }}</p>
+          <p class="text-xs text-muted-foreground">{{ f.kind }} · {{ f.size_kb }} KB · {{ f.when }}</p>
+        </div>
+        <a href="/download/{{ f.name }}" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-accent transition">
+          <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+          Download
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="mt-4 rounded-xl border border-dashed border-border px-4 py-10 text-center">
+      <p class="text-sm text-muted-foreground">No exports yet.</p>
+      <p class="mt-1 text-xs text-muted-foreground">Generate an inventory workbook or N-gram report and it'll appear here for quick re-download.</p>
+      <div class="mt-4 flex items-center justify-center gap-3">
+        <a href="/inventory" class="rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 transition">Build inventory workbook</a>
+        <a href="/ngram" class="rounded-md border border-border px-4 py-2 text-xs font-semibold hover:bg-accent transition">Run N-gram analysis</a>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+
+{% endblock %}

@@ -1,0 +1,466 @@
+{% extends "base.html" %}
+{% set active = 'harvest' %}
+{% block title %}Keyword Harvesting{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-start justify-between gap-4">
+  <div class="flex items-start gap-3">
+    <span class="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm" style="background:hsl(190 90% 45%)">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2a9 9 0 0 0-9 9c0 3.9 2.5 7.2 6 8.5V22h6v-2.5c3.5-1.3 6-4.6 6-8.5a9 9 0 0 0-9-9z"/><path d="M9 11h6"/></svg>
+    </span>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Keyword Harvesting</h1>
+      <p class="mt-1 text-sm text-muted-foreground">Mine winning search terms &amp; SQP, negate waste, and add keywords to targeting — by sales &amp; ACOS.</p>
+    </div>
+  </div>
+  <span class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+    <span id="adlabsDot" class="h-1.5 w-1.5 rounded-full bg-warning"></span> AdLabs
+  </span>
+</div>
+
+<!-- Controls -->
+<div class="mt-6 rounded-xl border border-border bg-card shadow-soft p-5">
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="lg:col-span-2">
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Advertising profile</label>
+      <select id="profile" onchange="showProfileMeta()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <option value="">Loading profiles…</option>
+      </select>
+      <p id="profileMeta" class="mt-1.5 text-xs text-muted-foreground"></p>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Target ACOS (%)</label>
+      <input id="targetAcos" type="number" min="1" max="200" step="1" value="30" class="stepper">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Min negate spend ($)</label>
+      <input id="minSpend" type="number" min="0" step="0.5" value="1" class="stepper">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Time window</label>
+      <select id="lookback" onchange="toggleCustom()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <option value="14">Last 14 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="60">Last 60 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="custom">Custom range…</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Brand names for branded/generic classification -->
+  <div class="mt-4">
+    <label class="block text-xs font-medium text-muted-foreground mb-1.5">Brand name(s)
+      <span title="Used to tag terms as Branded vs Generic. Comma-separate multiple (e.g. Oh Norman, ON).">ⓘ</span>
+    </label>
+    <input id="brandNames" placeholder="e.g. Oh Norman" class="w-full sm:max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+  </div>
+
+  <!-- Custom date range (shown when Time window = Custom) -->
+  <div id="customRange" class="mt-4 hidden grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Start date</label>
+      <input id="startDate" type="date" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm num focus:outline-none focus:ring-2 focus:ring-ring">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">End date</label>
+      <input id="endDate" type="date" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm num focus:outline-none focus:ring-2 focus:ring-ring">
+    </div>
+    <div class="sm:col-span-2 flex items-end">
+      <p class="text-xs text-muted-foreground">Pick any window — the app fetches every search term in that range, then splits into harvest, negate &amp; SQP.</p>
+    </div>
+  </div>
+
+  <div class="mt-4 flex items-center gap-3">
+    <button id="analyzeBtn" onclick="analyze()"
+      class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>
+      Analyze
+    </button>
+    <div id="progress" class="hidden items-center gap-2 text-sm">
+      <svg class="h-4 w-4 animate-spin" style="color:hsl(190 90% 45%)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>
+      <span id="progressMsg">Working…</span>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div id="statsCard" class="mt-6 hidden grid gap-3 grid-cols-2 lg:grid-cols-4">
+  <div class="rounded-xl border border-border bg-card p-4 shadow-soft"><div class="text-xs text-muted-foreground">Harvest keywords</div><div id="stHarvest" class="num text-2xl font-bold mt-1" style="color:hsl(160 84% 39%)">—</div><div id="stHarvestSales" class="text-xs text-muted-foreground mt-0.5"></div></div>
+  <div class="rounded-xl border border-border bg-card p-4 shadow-soft"><div class="text-xs text-muted-foreground">Negate terms</div><div id="stNegate" class="num text-2xl font-bold mt-1" style="color:hsl(0 72% 51%)">—</div><div id="stNegateSpend" class="text-xs text-muted-foreground mt-0.5"></div></div>
+  <div class="rounded-xl border border-border bg-card p-4 shadow-soft"><div class="text-xs text-muted-foreground">SQP opportunities</div><div id="stSqp" class="num text-2xl font-bold mt-1" style="color:hsl(190 90% 45%)">—</div></div>
+  <div class="rounded-xl border border-border bg-card p-4 shadow-soft"><div class="text-xs text-muted-foreground">AI-flagged irrelevant</div><div id="stIrrel" class="num text-2xl font-bold mt-1" style="color:hsl(38 92% 50%)">—</div></div>
+</div>
+
+<!-- AI summary -->
+<div id="summaryCard" class="mt-6 rounded-xl border border-border bg-card shadow-soft hidden">
+  <div class="border-b border-border px-5 py-3.5 flex items-center gap-2">
+    <span class="grid h-7 w-7 place-items-center rounded-md text-white" style="background:hsl(258 90% 60%)"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/></svg></span>
+    <h2 class="font-semibold">AI summary</h2>
+  </div>
+  <p id="summaryText" class="px-5 py-4 text-sm leading-relaxed text-foreground/90"></p>
+</div>
+
+<!-- Results -->
+<div id="resultsCard" class="mt-6 hidden">
+  <div class="flex flex-wrap items-center gap-2 border-b border-border">
+    <button id="tabA" onclick="showTab('a')" class="px-4 py-2 text-sm font-medium border-b-2 border-primary">All search terms <span id="cntA" class="ml-1 text-xs text-muted-foreground"></span></button>
+    <button id="tabH" onclick="showTab('h')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground">Harvest <span id="cntH" class="ml-1 text-xs"></span></button>
+    <button id="tabK" onclick="showTab('k')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground">Harvested <span id="cntK" class="ml-1 text-xs rounded-full bg-[hsl(160_84%_39%/.18)] text-[hsl(160_84%_35%)] px-1.5">0</span></button>
+    <button id="tabN" onclick="showTab('n')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground">Negate <span id="cntN" class="ml-1 text-xs"></span></button>
+    <button id="tabS" onclick="showTab('s')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground">SQP <span id="cntS" class="ml-1 text-xs"></span></button>
+    <span id="rangeLabel" class="ml-2 hidden sm:inline rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground"></span>
+    <button id="actionBtn" onclick="tabAction()" class="ml-auto hidden inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50" style="background:hsl(190 90% 45%)">Action</button>
+  </div>
+
+  <!-- All search terms -->
+  <div id="aPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden">
+    <div class="border-b border-border px-4 py-2.5 flex items-center gap-2">
+      <input id="aFilter" oninput="renderAllTerms()" placeholder="Filter terms…" class="w-56 rounded-md border border-input bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+      <select id="aCat" onchange="renderAllTerms()" class="rounded-md border border-input bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring">
+        <option value="">All categories</option><option value="harvest">Harvest</option><option value="negate">Negate</option><option value="neutral">Neutral</option>
+      </select>
+    </div>
+    <div class="max-h-[56vh] overflow-auto"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Type</th><th class="px-3 py-2.5">Campaign → Ad group</th>
+        <th class="px-3 py-2.5 text-right">Impr.</th><th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th>
+        <th class="px-3 py-2.5 text-right">Sales</th><th class="px-3 py-2.5 text-right">Orders</th><th class="px-3 py-2.5 text-right">ACOS</th><th class="px-3 py-2.5">Category</th>
+      </tr></thead><tbody id="aBody" class="divide-y divide-border"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Harvest -->
+  <div id="hPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden hidden">
+    <div class="max-h-[56vh] overflow-auto"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+        <th class="px-3 py-2.5"><input type="checkbox" id="hAll" onchange="toggleAll('h',this)" class="accent-emerald"></th>
+        <th class="px-3 py-2.5">Keyword</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Campaign → Ad group</th>
+        <th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th><th class="px-3 py-2.5 text-right">Sales</th>
+        <th class="px-3 py-2.5 text-right">Orders</th><th class="px-3 py-2.5 text-right">ACOS</th><th class="px-3 py-2.5 text-right">Bid</th><th class="px-3 py-2.5">Relevancy</th>
+      </tr></thead><tbody id="hBody" class="divide-y divide-border"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Harvested (staging) -->
+  <div id="kPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden hidden">
+    <div class="border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
+      Staged keywords — set the destination campaign/ad group, match type &amp; bid, then <b>Add to targeting</b>. Nothing is created until you do.
+    </div>
+    <div class="max-h-[56vh] overflow-auto"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+        <th class="px-3 py-2.5"><input type="checkbox" id="kAll" onchange="toggleAll('k',this)" class="accent-emerald"></th>
+        <th class="px-3 py-2.5">Keyword</th><th class="px-3 py-2.5">Destination (campaign → ad group)</th>
+        <th class="px-3 py-2.5">Match</th><th class="px-3 py-2.5 text-right">Bid</th><th class="px-3 py-2.5">Source</th><th class="px-3 py-2.5"></th>
+      </tr></thead><tbody id="kBody" class="divide-y divide-border"></tbody>
+    </table></div>
+  </div>
+
+  <!-- Negate -->
+  <div id="nPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden hidden">
+    <div class="max-h-[56vh] overflow-auto"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+        <th class="px-3 py-2.5"><input type="checkbox" id="nAll" onchange="toggleAll('n',this)" class="accent-amber"></th>
+        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Campaign → Ad group</th>
+        <th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th><th class="px-3 py-2.5 text-right">Sales</th>
+        <th class="px-3 py-2.5 text-right">ACOS</th><th class="px-3 py-2.5">Reason</th>
+      </tr></thead><tbody id="nBody" class="divide-y divide-border"></tbody>
+    </table></div>
+  </div>
+
+  <!-- SQP -->
+  <div id="sPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden hidden">
+    <div class="border-b border-border px-4 py-3 flex flex-wrap items-center gap-3">
+      <span class="text-xs text-muted-foreground">Harvest selected SQP queries into:</span>
+      <select id="sqpAdGroup" class="rounded-md border border-input bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"></select>
+      <span class="text-xs text-muted-foreground">at bid</span>
+      <input id="sqpBid" type="number" min="0.05" step="0.05" value="0.50" class="stepper" style="max-width:120px">
+    </div>
+    <div class="max-h-[52vh] overflow-auto"><table class="w-full text-sm">
+      <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+        <th class="px-3 py-2.5"><input type="checkbox" id="sAll" onchange="toggleAll('s',this)" class="accent-cyan-500"></th>
+        <th class="px-3 py-2.5">Query</th><th class="px-3 py-2.5 text-right">Volume</th><th class="px-3 py-2.5 text-right">Purchases</th>
+        <th class="px-3 py-2.5 text-right">Conv.</th><th class="px-3 py-2.5 text-right">Purchase share</th><th class="px-3 py-2.5">Top product</th><th class="px-3 py-2.5">Status</th>
+      </tr></thead><tbody id="sBody" class="divide-y divide-border"></tbody>
+    </table></div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let PROFILES=[], allTermRows=[], harvestRows=[], negateRows=[], sqpRows=[], adGroups=[], harvestedRows=[], profileId=null, currentTab='a', allTotal=0;
+
+function toggleCustom(){ document.getElementById('customRange').classList.toggle('hidden', document.getElementById('lookback').value!=='custom'); }
+function setMsg(m){ document.getElementById('progressMsg').textContent=m; }
+function showProg(on){ const p=document.getElementById('progress'); p.classList.toggle('hidden',!on); p.classList.toggle('flex',on); }
+function showProfileMeta(){ const i=document.getElementById('profile').value; const el=document.getElementById('profileMeta');
+  if(i===''||!PROFILES[+i]){ el.textContent=''; return; } const p=PROFILES[+i]; el.textContent=[p.brand,p.country,p.currency].filter(Boolean).join(' · ');
+  const bn=document.getElementById('brandNames'); if(bn && !bn.value && p.brand) bn.value=p.brand; }
+
+// reuse the shared /ads/profiles endpoint
+async function loadProfiles(){
+  const sel=document.getElementById('profile'); sel.innerHTML='<option value="">Loading profiles…</option>';
+  try{
+    const res=await fetch('/ads/profiles').then(r=>r.json());
+    if(!res.success) return profErr(res.error);
+    if(res.profiles){ populate(res.profiles); return; }
+    poll(res.job_id);
+  }catch(e){ profErr('Network error'); }
+}
+loadProfiles();
+function profErr(m){ document.getElementById('profile').innerHTML='<option value="">Couldn’t load profiles</option>'; document.getElementById('adlabsDot').className='h-1.5 w-1.5 rounded-full bg-danger'; document.getElementById('profileMeta').innerHTML=`<span class="text-danger">${esc(m||'Error')}</span> · <button onclick="loadProfiles()" class="underline">Retry</button>`; }
+function populate(list){ PROFILES=list||[]; const sel=document.getElementById('profile'); sel.innerHTML=''; const byTeam={};
+  PROFILES.forEach((p,i)=>{ (byTeam[p.team_name]=byTeam[p.team_name]||[]).push({...p,i}); });
+  Object.entries(byTeam).forEach(([t,ps])=>{ const og=document.createElement('optgroup'); og.label=t; ps.forEach(p=>{ const o=document.createElement('option'); o.value=p.i; o.textContent=`${p.name} (${p.country})`; og.appendChild(o); }); sel.appendChild(og); });
+  document.getElementById('adlabsDot').className='h-1.5 w-1.5 rounded-full bg-success'; showProfileMeta(); }
+async function poll(id){ try{ const s=await fetch(`/ads/profiles/${id}`).then(r=>r.json()); if(!s.success||s.state==='error') return profErr(s.message||s.error);
+  if(s.state==='done'){ const d=await fetch(`/ads/profiles/${id}/data`).then(r=>r.json()); populate(d.profiles||[]); return; } setTimeout(()=>poll(id),1500);}catch(e){ setTimeout(()=>poll(id),2000);} }
+
+async function analyze(){
+  const i=document.getElementById('profile').value;
+  if(i===''){ toast('Pick a profile first','error'); return; }
+  const p=PROFILES[+i];
+  const lb=document.getElementById('lookback').value;
+  const body={ team_id:p.team_id, slug:p.slug, brand:(document.getElementById('brandNames').value||p.brand||'').trim(),
+    target_acos:(+document.getElementById('targetAcos').value||30)/100,
+    min_negate_spend:+document.getElementById('minSpend').value||1 };
+  if(lb==='custom'){
+    const s=document.getElementById('startDate').value, e=document.getElementById('endDate').value;
+    if(!s||!e){ document.getElementById('analyzeBtn').disabled=false; return toast('Pick start and end dates','error'); }
+    body.start_date=s; body.end_date=e; body.lookback_days=30;
+  } else { body.lookback_days=+lb||30; }
+  document.getElementById('analyzeBtn').disabled=true; showProg(true); setMsg('Starting…');
+  ['statsCard','summaryCard','resultsCard'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  let res;
+  try{ res=await fetch('/harvest/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()); }
+  catch(e){ return failA('Network error'); }
+  if(!res.success) return failA(res.error||'Failed'); pollA(res.job_id);
+}
+function failA(m){ showProg(false); document.getElementById('analyzeBtn').disabled=false; toast(m,'error'); }
+
+async function pollA(id){
+  try{
+    const s=await fetch(`/harvest/analyze/${id}`).then(r=>r.json());
+    if(!s.success) return failA(s.error); setMsg(s.message||'…');
+    if(s.state==='error') return failA(s.message||'Analysis failed');
+    if(s.state==='done'){
+      const d=await fetch(`/harvest/analyze/${id}/data`).then(r=>r.json());
+      showProg(false); document.getElementById('analyzeBtn').disabled=false;
+      profileId=d.profile_id; adGroups=d.ad_groups||[]; sqpRows=d.sqp||[]; allTermRows=d.all_terms||[]; harvestedRows=[];
+      allTotal=(d.stats&&d.stats.all)||allTermRows.length;
+      // split relevancy: irrelevant converters move to negate list
+      harvestRows = (d.harvest||[]).filter(h=>h.relevant!==false);
+      const irrel = (d.harvest||[]).filter(h=>h.relevant===false).map(h=>({...h, reason:'AI: '+(h.relevance_reason||'irrelevant')}));
+      negateRows = (d.negate||[]).concat(irrel);
+      const rl=document.getElementById('rangeLabel'); if(d.range_label){ rl.textContent=d.range_label; rl.classList.remove('hidden'); }
+      showTab('a');
+      renderStats(d.stats||{}); renderAll();
+      document.getElementById('summaryText').textContent=d.summary||'';
+      document.getElementById('summaryCard').classList.remove('hidden');
+      document.getElementById('resultsCard').classList.remove('hidden');
+      return;
+    }
+    setTimeout(()=>pollA(id),2500);
+  }catch(e){ setTimeout(()=>pollA(id),3000); }
+}
+
+function renderStats(st){
+  document.getElementById('stHarvest').textContent=harvestRows.length;
+  document.getElementById('stHarvestSales').textContent='$'+(st.harvest_sales||0).toLocaleString()+' converting';
+  document.getElementById('stNegate').textContent=negateRows.length;
+  document.getElementById('stNegateSpend').textContent='$'+(st.negate_spend||0).toLocaleString()+' wasted';
+  document.getElementById('stSqp').textContent=sqpRows.length;
+  document.getElementById('stIrrel').textContent=st.irrelevant||0;
+  document.getElementById('statsCard').classList.remove('hidden');
+}
+
+const ACTIONS={ a:null, h:{label:'Move to harvested →',fn:moveToHarvested}, k:{label:'Add to targeting ✓',fn:addToTargeting}, n:{label:'Negate selected',fn:negateSelected}, s:{label:'Move to harvested →',fn:moveSqpToHarvested} };
+function showTab(t){
+  currentTab=t;
+  [['a','A'],['h','H'],['k','K'],['n','N'],['s','S']].forEach(([k,U])=>{
+    document.getElementById(k+'Pane').classList.toggle('hidden', k!==t);
+    document.getElementById('tab'+U).className='px-4 py-2 text-sm font-medium border-b-2 '+(k===t?'border-primary':'border-transparent text-muted-foreground');
+  });
+  const btn=document.getElementById('actionBtn'), act=ACTIONS[t];
+  if(act){ btn.classList.remove('hidden'); btn.textContent=act.label; } else { btn.classList.add('hidden'); }
+}
+function tabAction(){ const act=ACTIONS[currentTab]; if(act) act.fn(); }
+
+// --- staging: move harvest/SQP selections into the Harvested tab ---
+function moveToHarvested(){
+  const moved=[];
+  document.querySelectorAll('.hchk:checked').forEach(c=>{ const r=harvestRows[+c.dataset.i]; if(r) moved.push({...r, source:'search term', match:'EXACT', bid:r.suggested_bid, dest:r.ad_group_id}); });
+  if(!moved.length){ toast('Select keywords to harvest','error'); return; }
+  const keys=new Set(moved.map(m=>m.search_term+'|'+m.ad_group_id));
+  harvestRows=harvestRows.filter(r=>!keys.has(r.search_term+'|'+r.ad_group_id));
+  harvestedRows=harvestedRows.concat(moved);
+  renderAll(); renderHarvested(); showTab('k'); toast(`${moved.length} staged for targeting`,'success');
+}
+function moveSqpToHarvested(){
+  const agIdx=document.getElementById('sqpAdGroup').value, bid=+document.getElementById('sqpBid').value||0.5;
+  if(agIdx===''||!adGroups[+agIdx]){ toast('Pick a destination ad group','error'); return; }
+  const ag=adGroups[+agIdx]; const moved=[];
+  document.querySelectorAll('.schk:checked').forEach(c=>{ const r=sqpRows[+c.dataset.i]; if(r) moved.push({search_term:r.search_query, campaign:ag.campaign_name, ad_group:ag.ad_group_name, source:'SQP', match:'EXACT', bid:bid, dest:ag.ad_group_id}); });
+  if(!moved.length){ toast('Select SQP queries first','error'); return; }
+  harvestedRows=harvestedRows.concat(moved);
+  renderHarvested(); renderAll(); showTab('k'); toast(`${moved.length} SQP queries staged`,'success');
+}
+
+function renderHarvested(){
+  const body=document.getElementById('kBody'); body.innerHTML='';
+  const agOptions=(sel)=>adGroups.map(g=>`<option value="${g.ad_group_id}" ${g.ad_group_id===sel?'selected':''}>${esc(g.campaign_name)} → ${esc(g.ad_group_name)}</option>`).join('');
+  harvestedRows.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="kchk accent-emerald" checked></td>
+      <td class="px-3 py-2 font-medium max-w-[180px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}</td>
+      <td class="px-3 py-2"><select data-i="${i}" data-k="dest" class="w-full max-w-[280px] rounded-md border border-input bg-background px-2 py-1 text-xs">${agOptions(r.dest)}</select></td>
+      <td class="px-3 py-2"><select data-i="${i}" data-k="match" class="rounded-md border border-input bg-background px-2 py-1 text-xs"><option ${r.match==='EXACT'?'selected':''}>EXACT</option><option ${r.match==='PHRASE'?'selected':''}>PHRASE</option><option ${r.match==='BROAD'?'selected':''}>BROAD</option></select></td>
+      <td class="px-3 py-2 text-right"><input data-i="${i}" data-k="bid" type="number" min="0.05" step="0.05" value="${(r.bid||0.5).toFixed(2)}" class="w-20 rounded-md border border-input bg-background px-2 py-1 text-xs num text-right"></td>
+      <td class="px-3 py-2 text-xs text-muted-foreground">${esc(r.source||'')}</td>
+      <td class="px-3 py-2"><button onclick="unstage(${i})" class="text-xs text-muted-foreground hover:text-danger">Remove</button></td>`;
+    body.appendChild(tr); });
+  if(!harvestedRows.length) body.innerHTML=emptyRow(7,'No staged keywords yet. Select rows in Harvest or SQP and click “Move to harvested”.');
+  body.querySelectorAll('select[data-k],input[data-k]').forEach(el=>el.addEventListener('change',e=>{ const i=+e.target.dataset.i,k=e.target.dataset.k; harvestedRows[i][k]= k==='bid'? (+e.target.value||0.5) : e.target.value; }));
+  document.getElementById('cntK').textContent=harvestedRows.length;
+}
+function unstage(i){ harvestedRows.splice(i,1); renderHarvested(); }
+
+async function addToTargeting(){
+  const harvest=[];
+  document.querySelectorAll('.kchk:checked').forEach(c=>{ const r=harvestedRows[+c.dataset.i]; if(r&&r.dest) harvest.push({search_term:r.search_term, ad_group_id:r.dest, bid:r.bid, match:r.match}); });
+  if(!harvest.length){ toast('No staged keywords selected','error'); return; }
+  if(!confirm(`Add ${harvest.length} keyword(s) to targeting live via AdLabs?`)) return;
+  const btn=document.getElementById('actionBtn'); btn.disabled=true; btn.textContent='Adding…';
+  try{
+    const res=await fetch('/harvest/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileId, harvest, negate:[]})}).then(r=>r.json());
+    if(res.success){ toast(`Added ${res.applied.harvested} keyword(s) to targeting`,'success'); harvestedRows=harvestedRows.filter((r,i)=>!document.querySelector(`.kchk[data-i="${i}"]`)?.checked); renderHarvested(); }
+    else toast((res.errors||['Failed']).join('; '),'error');
+  } finally { btn.disabled=false; btn.textContent='Add to targeting ✓'; }
+}
+async function negateSelected(){
+  const negate=[]; const conflicts=[];
+  const stagedTerms=new Set(harvestedRows.map(h=>(h.search_term||'').toLowerCase()));
+  document.querySelectorAll('.nchk:checked').forEach(c=>{ const r=negateRows[+c.dataset.i]; if(!r||!r.search_term_id) return;
+    const t=(r.search_term||'').toLowerCase();
+    if(r.already_harvested || stagedTerms.has(t)) conflicts.push(r.search_term);
+    negate.push({search_term_id:r.search_term_id}); });
+  if(!negate.length){ toast('Select terms to negate','error'); return; }
+  if(conflicts.length){
+    if(!confirm(`⚠ ${conflicts.length} of these are already in targeting or staged to harvest:\n\n${conflicts.slice(0,8).join(', ')}${conflicts.length>8?'…':''}\n\nNegating a keyword you're also targeting will block it. Negate anyway?`)) return;
+  } else if(!confirm(`Create ${negate.length} negative(s) live via AdLabs?`)) return;
+  const btn=document.getElementById('actionBtn'); btn.disabled=true; btn.textContent='Negating…';
+  try{
+    const res=await fetch('/harvest/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:profileId, harvest:[], negate})}).then(r=>r.json());
+    if(res.success) toast(`Negated ${res.applied.negated} term(s)`,'success');
+    else toast((res.errors||['Failed']).join('; '),'error');
+  } finally { btn.disabled=false; btn.textContent='Negate selected'; }
+}
+
+function catBadge(cat){
+  const map={'harvest':'bg-[hsl(160_84%_39%/.15)] text-[hsl(160_84%_30%)]','negate':'bg-[hsl(0_72%_51%/.15)] text-[hsl(0_72%_45%)]','neutral':'bg-secondary text-muted-foreground'};
+  const label={'harvest':'Harvest','negate':'Negate','neutral':'Neutral'};
+  return `<span class="rounded-full px-2 py-0.5 text-xs font-medium ${map[cat]||map.neutral}">${label[cat]||'—'}</span>`;
+}
+
+function productCell(r){
+  const a=r.product_asin||'', t=r.product_title||'';
+  if(!a && !t) return '<span class="text-xs text-muted-foreground">—</span>';
+  return `<span class="num text-xs" title="${esc(t)}">${esc(a||'product')}</span>`;
+}
+function brandBadge(b){ return b
+  ? '<span class="rounded-full px-2 py-0.5 text-xs font-medium bg-[hsl(258_90%_60%/.15)] text-[hsl(258_90%_62%)]">Branded</span>'
+  : '<span class="rounded-full px-2 py-0.5 text-xs font-medium bg-secondary text-muted-foreground">Generic</span>'; }
+function sqpStatus(r){
+  const staged=harvestedRows.some(h=>h.source==='SQP' && h.search_term===r.search_query);
+  return staged ? '<span class="rounded-full px-2 py-0.5 text-xs font-medium bg-[hsl(160_84%_39%/.15)] text-[hsl(160_84%_30%)]">Staged ✓</span>' : '<span class="text-xs text-muted-foreground">—</span>';
+}
+
+function renderAllTerms(){
+  const q=(document.getElementById('aFilter')?.value||'').toLowerCase();
+  const cat=document.getElementById('aCat')?.value||'';
+  const body=document.getElementById('aBody'); body.innerHTML='';
+  const matched=allTermRows.filter(r=>(!q||(r.search_term||'').toLowerCase().includes(q))&&(!cat||r.category===cat));
+  const CAP=1500; const rows=matched.slice(0,CAP);
+  rows.forEach(r=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2 font-medium max-w-[180px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}</td>
+      <td class="px-3 py-2">${productCell(r)}</td>
+      <td class="px-3 py-2">${brandBadge(r.branded)}</td>
+      <td class="px-3 py-2 text-xs text-muted-foreground max-w-[180px] truncate" title="${esc(r.campaign||'')} → ${esc(r.ad_group||'')}">${esc(r.campaign||'')} → ${esc(r.ad_group||'')}</td>
+      <td class="px-3 py-2 text-right num">${(r.impressions||0).toLocaleString()}</td>
+      <td class="px-3 py-2 text-right num">${r.clicks}</td>
+      <td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${r.orders}</td>
+      <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
+      <td class="px-3 py-2">${catBadge(r.category)}</td>`;
+    body.appendChild(tr); });
+  if(!rows.length) body.innerHTML=emptyRow(11,'No search terms match.');
+  if(matched.length>rows.length){ body.innerHTML+=`<tr><td colspan="11" class="px-3 py-3 text-center text-xs text-muted-foreground">Showing ${rows.length} of ${matched.length} matching — use the filter to narrow.</td></tr>`; }
+  document.getElementById('cntA').textContent=allTotal||allTermRows.length;
+}
+
+function renderAll(){
+  // ad-group picker for SQP
+  const ag=document.getElementById('sqpAdGroup'); ag.innerHTML='';
+  adGroups.forEach((g,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=`${g.campaign_name} → ${g.ad_group_name}`; ag.appendChild(o); });
+  if(!adGroups.length){ ag.innerHTML='<option value="">No ad groups</option>'; }
+
+  const camp = r => `${esc(r.campaign||'')} → ${esc(r.ad_group||'')}`;
+  // Harvest
+  const hb=document.getElementById('hBody'); hb.innerHTML='';
+  harvestRows.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="hchk accent-emerald" checked></td>
+      <td class="px-3 py-2 font-medium max-w-[180px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}</td>
+      <td class="px-3 py-2">${productCell(r)}</td>
+      <td class="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate" title="${camp(r)}">${camp(r)}</td>
+      <td class="px-3 py-2 text-right num">${r.clicks}</td><td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td><td class="px-3 py-2 text-right num">${r.orders}</td>
+      <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
+      <td class="px-3 py-2 text-right num font-semibold">$${(r.suggested_bid||0).toFixed(2)}</td>
+      <td class="px-3 py-2">${relBadge(r)}</td>`;
+    hb.appendChild(tr); });
+  if(!harvestRows.length) hb.innerHTML=emptyRow(11,'No keywords to harvest.');
+
+  // Negate
+  const nb=document.getElementById('nBody'); nb.innerHTML='';
+  negateRows.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="nchk accent-amber" checked></td>
+      <td class="px-3 py-2 max-w-[180px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}${r.already_harvested?' <span class=\"text-[hsl(38_92%_50%)]\" title=\"Already in targeting\">●</span>':''}</td>
+      <td class="px-3 py-2">${productCell(r)}</td>
+      <td class="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate" title="${camp(r)}">${camp(r)}</td>
+      <td class="px-3 py-2 text-right num">${r.clicks}</td><td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
+      <td class="px-3 py-2 text-xs text-muted-foreground">${esc(r.reason||'')}</td>`;
+    nb.appendChild(tr); });
+  if(!negateRows.length) nb.innerHTML=emptyRow(9,'Nothing to negate.');
+
+  // SQP
+  const sb=document.getElementById('sBody'); sb.innerHTML='';
+  sqpRows.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="schk" style="accent-color:hsl(190 90% 45%)"></td>
+      <td class="px-3 py-2 font-medium max-w-[220px] truncate" title="${esc(r.search_query)}">${esc(r.search_query)}</td>
+      <td class="px-3 py-2 text-right num">${(r.volume||0).toLocaleString()}</td><td class="px-3 py-2 text-right num">${r.purchases}</td>
+      <td class="px-3 py-2 text-right num">${((r.conversion||0)*100).toFixed(0)}%</td>
+      <td class="px-3 py-2 text-right num">${((r.purchase_share||0)*100).toFixed(0)}%</td>
+      <td class="px-3 py-2 text-xs text-muted-foreground max-w-[220px] truncate" title="${esc(r.title||'')}">${esc(r.asin||'')} ${esc(r.title||'')}</td>
+      <td class="px-3 py-2">${sqpStatus(r)}</td>`;
+    sb.appendChild(tr); });
+  if(!sqpRows.length) sb.innerHTML=emptyRow(8,'No SQP opportunities.');
+
+  document.getElementById('cntH').textContent=harvestRows.length;
+  document.getElementById('cntN').textContent=negateRows.length;
+  document.getElementById('cntS').textContent=sqpRows.length;
+  renderAllTerms(); renderHarvested();
+}
+
+function relBadge(r){
+  if(r.relevant===false) return `<span class="rounded-full px-2 py-0.5 text-xs font-medium bg-[hsl(0_72%_51%/.15)] text-[hsl(0_72%_45%)]" title="${esc(r.relevance_reason||'')}">Irrelevant</span>`;
+  return `<span class="rounded-full px-2 py-0.5 text-xs font-medium bg-[hsl(160_84%_39%/.15)] text-[hsl(160_84%_30%)]">Relevant</span>`;
+}
+function emptyRow(cols,msg){ return `<tr><td colspan="${cols}" class="px-3 py-8 text-center text-sm text-muted-foreground">${msg}</td></tr>`; }
+function toggleAll(w,box){ document.querySelectorAll('.'+w+'chk').forEach(c=>c.checked=box.checked); }
+
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+</script>
+{% endblock %}

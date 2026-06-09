@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Amazon Ops Suite{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        container: { center: true, padding: '1.5rem', screens: { '2xl': '1320px' } },
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            border: 'hsl(var(--border))', input: 'hsl(var(--input))', ring: 'hsl(var(--ring))',
+            background: 'hsl(var(--background))', foreground: 'hsl(var(--foreground))',
+            primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+            secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+            muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+            accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+            card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+            success: 'hsl(var(--success))', warning: 'hsl(var(--warning))', danger: 'hsl(var(--danger))',
+            violet: 'hsl(258 90% 60%)', emerald: 'hsl(160 84% 39%)', amber: 'hsl(38 92% 50%)',
+          },
+          borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
+          boxShadow: { soft: '0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.05)',
+                       lift: '0 10px 30px -12px rgba(16,24,40,.25)' },
+        }
+      }
+    }
+  </script>
+  <style>
+    :root{
+      --background:0 0% 100%; --foreground:222 47% 11%;
+      --card:0 0% 100%; --card-foreground:222 47% 11%;
+      --primary:222 47% 11%; --primary-foreground:210 40% 98%;
+      --secondary:210 40% 96%; --secondary-foreground:222 47% 11%;
+      --muted:210 40% 96%; --muted-foreground:215 16% 47%;
+      --accent:210 40% 96%; --accent-foreground:222 47% 11%;
+      --border:214 32% 91%; --input:214 32% 91%; --ring:222 47% 11%;
+      --success:142 71% 45%; --warning:38 92% 50%; --danger:0 72% 51%;
+      --radius:0.7rem;
+    }
+    .dark{
+      --background:222 47% 7%; --foreground:210 40% 98%;
+      --card:222 44% 10%; --card-foreground:210 40% 98%;
+      --primary:210 40% 98%; --primary-foreground:222 47% 11%;
+      --secondary:217 33% 17%; --secondary-foreground:210 40% 98%;
+      --muted:217 33% 17%; --muted-foreground:215 20% 65%;
+      --accent:217 33% 19%; --accent-foreground:210 40% 98%;
+      --border:217 33% 20%; --input:217 33% 22%; --ring:213 27% 84%;
+    }
+    *{ border-color: hsl(var(--border)); }
+    body{ background:hsl(var(--background)); color:hsl(var(--foreground)); }
+    .num{ font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; }
+    ::-webkit-scrollbar{ width:10px; height:10px; }
+    ::-webkit-scrollbar-thumb{ background:hsl(var(--border)); border-radius:6px; }
+    @keyframes fadeup{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+    .fadeup{ animation:fadeup .35s ease both; }
+    @media (prefers-reduced-motion: reduce){ .fadeup{ animation:none } }
+    /* Clerk UserButton popover — readable in both themes via design tokens */
+    .cl-userButtonPopoverActionButton,
+    .cl-userButtonPopoverActionButton *:not(svg),
+    .cl-userButtonPopoverActionButtonText,
+    .cl-userPreviewMainIdentifier{ color:hsl(var(--foreground)) !important; }
+    .cl-userButtonPopoverActionButtonIcon,
+    .cl-userButtonPopoverActionButtonIcon *,
+    .cl-userPreviewSecondaryIdentifier{ color:hsl(var(--muted-foreground)) !important; }
+    .cl-userButtonPopoverActionButton:hover{ background:hsl(var(--accent)) !important; }
+    /* Hide native number spinners — replaced by the custom .stepper component */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button{ -webkit-appearance:none; margin:0; }
+    input[type=number]{ -moz-appearance:textfield; appearance:textfield; }
+    .stepper-group{ display:flex; align-items:stretch; width:100%; border-radius:.5rem;
+      border:1px solid hsl(var(--input)); background:hsl(var(--background)); overflow:hidden; }
+    .stepper-group:focus-within{ outline:2px solid hsl(var(--ring)); outline-offset:0; }
+    .stepper-group input{ flex:1 1 auto; min-width:0; width:100%; background:transparent;
+      border:0; text-align:center; padding:.5rem; font-size:.875rem; color:hsl(var(--foreground));
+      font-family:'JetBrains Mono',monospace; font-variant-numeric:tabular-nums; }
+    .stepper-group input:focus{ outline:none; }
+    .stepper-btn{ width:2.25rem; display:grid; place-items:center; cursor:pointer; user-select:none;
+      color:hsl(var(--muted-foreground)); transition:background .15s, color .15s; flex:none; }
+    .stepper-btn:hover{ background:hsl(var(--accent)); color:hsl(var(--foreground)); }
+    .stepper-btn:active{ background:hsl(var(--secondary)); }
+    .stepper-btn svg{ width:14px; height:14px; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="min-h-dvh font-sans antialiased">
+  <script>
+    // Apply theme before paint to avoid flash.
+    (function(){ const t = localStorage.getItem('theme');
+      if (t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches))
+        document.documentElement.classList.add('dark'); })();
+  </script>
+
+  <!-- Top navigation -->
+  <header class="sticky top-0 z-40 w-full border-b border-border bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div class="container flex h-16 items-center gap-6">
+      <a href="/" class="flex items-center gap-2.5 shrink-0">
+        <span class="inline-flex items-center rounded-lg bg-white px-2 py-1.5 shadow-sm">
+          <img src="https://www.esellerworld.com/logo.svg" alt="eSeller World" class="h-4 w-auto block">
+        </span>
+        <span class="h-5 w-px bg-border hidden sm:block"></span>
+        <span class="font-bold tracking-tight hidden sm:block">Amazon Ops Suite</span>
+      </a>
+      <nav class="flex items-center gap-1 text-sm font-medium">
+        {% set active = active|default('') %}
+        <a href="/ngram" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='ngram' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">N-Gram</a>
+        <a href="/inventory" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='inventory' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">Inventory</a>
+        <a href="/ads" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='ads' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">Ads Optimizer</a>
+        <a href="/harvest" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='harvest' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">Harvesting</a>
+        <a href="/campaign" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='campaign' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">Campaigns</a>
+        <a href="/dashboard" class="px-3 py-2 rounded-md transition-colors hover:bg-accent {% if active=='dashboard' %}bg-accent text-accent-foreground{% else %}text-muted-foreground{% endif %}">Dashboard</a>
+      </nav>
+      <div class="ml-auto flex items-center gap-3">
+        {% if auth_enabled %}<div id="clerk-user" class="flex items-center"></div>{% endif %}
+        <button onclick="toggleTheme()" aria-label="Toggle theme"
+          class="grid h-9 w-9 place-items-center rounded-md border border-border hover:bg-accent transition-colors">
+          <svg class="h-4 w-4 dark:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <svg class="h-4 w-4 hidden dark:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container py-8 fadeup">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="border-t border-border mt-12">
+    <div class="container py-6 text-sm text-muted-foreground flex flex-wrap items-center justify-between gap-2">
+      <span>Amazon Operations Suite</span>
+      <span>SP-API · Advertising API · AI</span>
+    </div>
+  </footer>
+
+  <!-- Toast host -->
+  <div id="toast" aria-live="polite" class="fixed bottom-5 right-5 z-[100] flex flex-col gap-2"></div>
+
+  <script>
+    function toggleTheme(){
+      const d = document.documentElement.classList.toggle('dark');
+      localStorage.setItem('theme', d ? 'dark' : 'light');
+    }
+    // Replace native number spinners with a custom -/+ stepper.
+    function enhanceSteppers(root){
+      (root || document).querySelectorAll('input[type=number].stepper').forEach(inp => {
+        if (inp.dataset.stepped) return;
+        inp.dataset.stepped = '1';
+        const group = document.createElement('div');
+        group.className = 'stepper-group';
+        inp.parentNode.insertBefore(group, inp);
+        const mk = (dir, path) => {
+          const b = document.createElement('button');
+          b.type = 'button'; b.className = 'stepper-btn'; b.tabIndex = -1;
+          b.setAttribute('aria-label', dir < 0 ? 'Decrease' : 'Increase');
+          b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">${path}</svg>`;
+          b.addEventListener('click', () => stepValue(inp, dir));
+          return b;
+        };
+        const minus = mk(-1, '<path d="M5 12h14"/>');
+        const plus = mk(1, '<path d="M12 5v14M5 12h14"/>');
+        group.appendChild(minus); group.appendChild(inp); group.appendChild(plus);
+      });
+    }
+    function stepValue(inp, dir){
+      const step = parseFloat(inp.step) || 1;
+      const min = inp.min !== '' ? parseFloat(inp.min) : -Infinity;
+      const max = inp.max !== '' ? parseFloat(inp.max) : Infinity;
+      let v = parseFloat(inp.value);
+      if (isNaN(v)) v = min !== -Infinity ? min : 0;
+      v = Math.min(max, Math.max(min, +(v + dir * step).toFixed(4)));
+      inp.value = (step % 1 === 0) ? String(Math.round(v)) : String(v);
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    document.addEventListener('DOMContentLoaded', () => enhanceSteppers());
+
+    function toast(msg, kind){
+      const host = document.getElementById('toast');
+      const colors = { error:'border-danger text-danger', success:'border-success text-success', info:'border-border' };
+      const el = document.createElement('div');
+      el.className = `fadeup rounded-lg border bg-card px-4 py-3 text-sm shadow-lift ${colors[kind]||colors.info}`;
+      el.textContent = msg;
+      host.appendChild(el);
+      setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, 4000);
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+
+  {% if auth_enabled and clerk_frontend_api %}
+  <script async crossorigin="anonymous"
+    data-clerk-publishable-key="{{ clerk_pk }}"
+    src="https://{{ clerk_frontend_api }}/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"></script>
+  <script>
+    window.addEventListener('load', async function () {
+      try {
+        const dark = document.documentElement.classList.contains('dark');
+        await Clerk.load({ appearance: { variables: dark ? {
+          colorBackground:'#0e1626', colorText:'#e6edf6', colorTextSecondary:'#9aa7bd',
+          colorPrimary:'#7c5cff', colorInputBackground:'#0e1626', colorInputText:'#e6edf6'
+        } : {} } });
+        const el = document.getElementById('clerk-user');
+        if (el && Clerk.user) Clerk.mountUserButton(el, { afterSignOutUrl: '/sign-in' });
+      } catch (e) { /* ignore */ }
+    });
+  </script>
+  {% endif %}
+</body>
+</html>

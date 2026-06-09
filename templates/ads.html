@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% set active = 'ads' %}
+{% block title %}Ads Optimizer — AdLabs{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-end justify-between gap-4">
+  <div class="flex items-start gap-3">
+    <span class="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm" style="background:hsl(38 92% 50%)">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>
+    </span>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">Ads Bid &amp; Placement Optimizer</h1>
+      <p class="mt-1 text-sm text-muted-foreground">Powered by AdLabs. Pull keyword &amp; placement data, review changes, apply on confirm.</p>
+    </div>
+  </div>
+  <span class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+    <span id="adlabsDot" class="h-1.5 w-1.5 rounded-full bg-warning"></span> AdLabs
+  </span>
+</div>
+
+<!-- Controls -->
+<div class="mt-6 rounded-xl border border-border bg-card shadow-soft p-5">
+  <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="lg:col-span-2">
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Advertising profile</label>
+      <select id="profile" onchange="showProfileMeta()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <option value="">Loading profiles…</option>
+      </select>
+      <p id="profileMeta" class="mt-1.5 text-xs text-muted-foreground"></p>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Target ACOS (%)</label>
+      <input id="targetAcos" type="number" min="1" max="200" step="1" value="30" class="stepper">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Target CPA ($)</label>
+      <input id="targetCpa" type="number" min="0" step="0.5" value="15" class="stepper">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-muted-foreground mb-1.5">Lookback</label>
+      <select id="lookback" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <option value="7">Last 7 days</option>
+        <option value="14" selected>Last 14 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="60">Last 60 days</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Rule legend -->
+  <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+    {% for c, name, formula in [
+      ('0 72% 51%','High ACOS','New bid = RPC × Target ACOS'),
+      ('20 90% 50%','High Spend, No Sales','(AOV ÷ Clicks) × Target ACOS'),
+      ('160 84% 39%','Low ACOS','Current × 1.05–1.10'),
+      ('217 91% 60%','Low Visibility','Current × 1.05')
+    ] %}
+    <div class="rounded-lg border border-border bg-background/50 px-3 py-2">
+      <div class="flex items-center gap-1.5 font-semibold"><span class="h-2 w-2 rounded-full" style="background:hsl({{ c }})"></span>{{ name }}</div>
+      <div class="mt-0.5 text-muted-foreground num">{{ formula }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt-4 flex items-center gap-3">
+    <button id="analyzeBtn" onclick="analyze()"
+      class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-6"/></svg>
+      Analyze
+    </button>
+    <div id="progress" class="hidden items-center gap-2 text-sm">
+      <svg class="h-4 w-4 animate-spin text-amber" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>
+      <span id="progressMsg">Working…</span>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div id="statsCard" class="mt-6 hidden">
+  <div class="grid gap-3 grid-cols-2 lg:grid-cols-4">
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Keywords analyzed</div>
+      <div id="stKwAll" class="num text-2xl font-bold mt-1">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Bid changes</div>
+      <div id="stKwChg" class="num text-2xl font-bold mt-1" style="color:hsl(38 92% 50%)">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Placement changes</div>
+      <div id="stPlChg" class="num text-2xl font-bold mt-1" style="color:hsl(258 90% 60%)">—</div>
+    </div>
+    <div class="rounded-xl border border-border bg-card p-4 shadow-soft">
+      <div class="text-xs text-muted-foreground">Spend in scope</div>
+      <div id="stSpend" class="num text-2xl font-bold mt-1">—</div>
+    </div>
+  </div>
+  <div id="ruleChips" class="mt-3 flex flex-wrap gap-2"></div>
+</div>
+
+<!-- AI summary -->
+<div id="summaryCard" class="mt-6 rounded-xl border border-border bg-card shadow-soft hidden">
+  <div class="border-b border-border px-5 py-3.5 flex items-center gap-2">
+    <span class="grid h-7 w-7 place-items-center rounded-md text-white" style="background:hsl(258 90% 60%)">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z"/></svg>
+    </span>
+    <h2 class="font-semibold">AI summary</h2>
+    <span id="changedBadge" class="ml-auto rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium"></span>
+  </div>
+  <p id="summaryText" class="px-5 py-4 text-sm leading-relaxed text-foreground/90"></p>
+</div>
+
+<!-- Tabs -->
+<div id="resultsCard" class="mt-6 hidden">
+  <div class="flex items-center gap-2 border-b border-border">
+    <button id="tabKw" onclick="showTab('kw')" class="px-4 py-2 text-sm font-medium border-b-2 border-primary">Keywords</button>
+    <button id="tabPl" onclick="showTab('pl')" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-muted-foreground">Placements</button>
+    <button id="applyBtn" onclick="applyChanges()"
+      class="ml-auto inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50"
+      style="background:hsl(38 92% 50%)">Apply selected</button>
+  </div>
+
+  <!-- Keywords table -->
+  <div id="kwPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden">
+    <div class="max-h-[58vh] overflow-auto">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide">
+          <tr>
+            <th class="px-3 py-2.5"><input type="checkbox" id="kwAll" onchange="toggleAll('kw',this)" class="accent-amber"></th>
+            <th class="px-3 py-2.5">Campaign</th><th class="px-3 py-2.5">Keyword</th><th class="px-3 py-2.5">Match</th>
+            <th class="px-3 py-2.5 text-right" title="Top-of-Search impression share">TOS</th>
+            <th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th>
+            <th class="px-3 py-2.5 text-right">Sales</th><th class="px-3 py-2.5 text-right">ACOS</th>
+            <th class="px-3 py-2.5">Last change</th>
+            <th class="px-3 py-2.5 text-right">Bid</th><th class="px-3 py-2.5 text-right">Suggested</th>
+            <th class="px-3 py-2.5 text-right">Your bid</th><th class="px-3 py-2.5">Rule</th>
+          </tr>
+        </thead>
+        <tbody id="kwBody" class="divide-y divide-border"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Placements table -->
+  <div id="plPane" class="mt-4 rounded-xl border border-border bg-card shadow-soft overflow-hidden hidden">
+    <div class="max-h-[58vh] overflow-auto">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide">
+          <tr>
+            <th class="px-3 py-2.5"><input type="checkbox" id="plAll" onchange="toggleAll('pl',this)" class="accent-amber"></th>
+            <th class="px-3 py-2.5">Campaign</th><th class="px-3 py-2.5">Placement</th>
+            <th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th>
+            <th class="px-3 py-2.5 text-right">Sales</th><th class="px-3 py-2.5 text-right">ACOS</th>
+            <th class="px-3 py-2.5">Last change</th>
+            <th class="px-3 py-2.5 text-right">Current %</th><th class="px-3 py-2.5 text-right">New %</th>
+          </tr>
+        </thead>
+        <tbody id="plBody" class="divide-y divide-border"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let PROFILES = [], keywords = [], placements = [], profileId = null;
+
+function setMsg(m){ document.getElementById('progressMsg').textContent = m; }
+function showProg(on){ const p=document.getElementById('progress'); p.classList.toggle('hidden',!on); p.classList.toggle('flex',on); }
+function showProfileMeta(){
+  const idx=document.getElementById('profile').value; const el=document.getElementById('profileMeta');
+  if(idx===''||!PROFILES[+idx]){ el.textContent=''; return; }
+  const p=PROFILES[+idx]; el.textContent=[p.brand,p.country,p.currency].filter(Boolean).join(' · ');
+}
+
+// ---- load profiles on page open (cache-aware, retryable) ----
+async function loadProfiles(){
+  const sel = document.getElementById('profile');
+  sel.innerHTML='<option value="">Loading profiles…</option>';
+  document.getElementById('profileMeta').textContent='';
+  document.getElementById('adlabsDot').className='h-1.5 w-1.5 rounded-full bg-warning';
+  try{
+    const res = await fetch('/ads/profiles').then(r=>r.json());
+    if(!res.success){ return profilesError(res.error||'Failed to load'); }
+    if(res.profiles){ populateProfiles(res.profiles); return; }   // served from cache
+    pollProfiles(res.job_id);
+  }catch(e){ profilesError('Network error'); }
+}
+loadProfiles();
+
+function profilesError(msg){
+  document.getElementById('profile').innerHTML='<option value="">Couldn’t load profiles</option>';
+  document.getElementById('adlabsDot').className='h-1.5 w-1.5 rounded-full bg-danger';
+  const meta=document.getElementById('profileMeta');
+  meta.innerHTML = `<span class="text-danger">${esc(msg)}</span> · <button type="button" onclick="loadProfiles()" class="underline hover:text-foreground">Retry</button>`;
+}
+
+function populateProfiles(list){
+  PROFILES = list||[];
+  const sel = document.getElementById('profile'); sel.innerHTML='';
+  if(!PROFILES.length){ sel.innerHTML='<option value="">No profiles found</option>'; }
+  const byTeam = {};
+  PROFILES.forEach((p,i)=>{ (byTeam[p.team_name]=byTeam[p.team_name]||[]).push({...p,i}); });
+  Object.entries(byTeam).forEach(([team,ps])=>{
+    const og=document.createElement('optgroup'); og.label=team;
+    ps.forEach(p=>{ const o=document.createElement('option'); o.value=p.i; o.textContent=`${p.name} (${p.country})`; og.appendChild(o); });
+    sel.appendChild(og);
+  });
+  document.getElementById('adlabsDot').className='h-1.5 w-1.5 rounded-full bg-success';
+  showProfileMeta();
+}
+
+async function pollProfiles(jobId){
+  try{
+    const s = await fetch(`/ads/profiles/${jobId}`).then(r=>r.json());
+    if(!s.success || s.state==='error'){ return profilesError(s.message||s.error||'Error'); }
+    if(s.state==='done'){
+      const data = await fetch(`/ads/profiles/${jobId}/data`).then(r=>r.json());
+      populateProfiles(data.profiles||[]);
+      return;
+    }
+    setTimeout(()=>pollProfiles(jobId), 1500);
+  }catch(e){ setTimeout(()=>pollProfiles(jobId), 2000); }
+}
+
+const RULE_HEX={'High ACOS':'0 72% 51%','High Spend, No Sales':'20 90% 50%','Low ACOS':'160 84% 39%','Low Visibility':'217 91% 60%'};
+function renderStats(st){
+  if(!st.keywords_analyzed && !st.placements_analyzed){ document.getElementById('statsCard').classList.add('hidden'); return; }
+  document.getElementById('stKwAll').textContent = st.keywords_analyzed ?? '—';
+  document.getElementById('stKwChg').textContent = st.kw_changed ?? '—';
+  document.getElementById('stPlChg').textContent = st.pl_changed ?? '—';
+  document.getElementById('stSpend').textContent = '$'+(st.spend_in_scope||0).toLocaleString();
+  const chips=document.getElementById('ruleChips'); chips.innerHTML='';
+  Object.entries(st.by_rule||{}).forEach(([rule,n])=>{
+    const c=RULE_HEX[rule]||'215 16% 47%'; const el=document.createElement('span');
+    el.className='inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs';
+    el.innerHTML=`<span class="h-2 w-2 rounded-full" style="background:hsl(${c})"></span>${esc(rule)} · <span class="num font-semibold">${n}</span>`;
+    chips.appendChild(el);
+  });
+  document.getElementById('statsCard').classList.remove('hidden');
+}
+
+// ---- analyze ----
+async function analyze(){
+  const idx = document.getElementById('profile').value;
+  if(idx===''){ toast('Pick a profile first','error'); return; }
+  const p = PROFILES[+idx];
+  const target_acos = (+document.getElementById('targetAcos').value||30)/100;
+  const target_cpa = +document.getElementById('targetCpa').value||15;
+  const lookback_days = +document.getElementById('lookback').value||14;
+  document.getElementById('analyzeBtn').disabled=true; showProg(true); setMsg('Starting…');
+  ['summaryCard','resultsCard','statsCard'].forEach(id=>document.getElementById(id).classList.add('hidden'));
+  let res;
+  try{
+    res = await fetch('/ads/analyze',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({team_id:p.team_id, slug:p.slug, target_acos, target_cpa, lookback_days})}).then(r=>r.json());
+  }catch(e){ return failAnalyze('Network error'); }
+  if(!res.success) return failAnalyze(res.error||'Failed');
+  pollAnalyze(res.job_id);
+}
+function failAnalyze(m){ showProg(false); document.getElementById('analyzeBtn').disabled=false; toast(m,'error'); }
+
+async function pollAnalyze(jobId){
+  try{
+    const s = await fetch(`/ads/analyze/${jobId}`).then(r=>r.json());
+    if(!s.success) return failAnalyze(s.error||'Job error');
+    setMsg(s.message||'…');
+    if(s.state==='error') return failAnalyze(s.message||'Analysis failed');
+    if(s.state==='done'){
+      const data = await fetch(`/ads/analyze/${jobId}/data`).then(r=>r.json());
+      showProg(false); document.getElementById('analyzeBtn').disabled=false;
+      keywords = data.keywords||[]; placements = data.placements||[]; profileId = data.profile_id;
+      document.getElementById('summaryText').textContent = data.summary||'';
+      document.getElementById('changedBadge').textContent = `${data.kw_changed} bid · ${data.pl_changed} placement changes`;
+      renderStats(data.stats||{});
+      document.getElementById('summaryCard').classList.remove('hidden');
+      renderKw(); renderPl();
+      document.getElementById('resultsCard').classList.remove('hidden');
+      return;
+    }
+    setTimeout(()=>pollAnalyze(jobId), 2500);
+  }catch(e){ setTimeout(()=>pollAnalyze(jobId), 3000); }
+}
+
+function showTab(t){
+  document.getElementById('kwPane').classList.toggle('hidden', t!=='kw');
+  document.getElementById('plPane').classList.toggle('hidden', t!=='pl');
+  document.getElementById('tabKw').className = 'px-4 py-2 text-sm font-medium border-b-2 '+(t==='kw'?'border-primary':'border-transparent text-muted-foreground');
+  document.getElementById('tabPl').className = 'px-4 py-2 text-sm font-medium border-b-2 '+(t==='pl'?'border-primary':'border-transparent text-muted-foreground');
+}
+
+function ruleBadge(rule){
+  if(!rule) return '<span class="text-xs text-muted-foreground">—</span>';
+  const map={'High ACOS':'bg-[hsl(0_72%_51%/.15)] text-[hsl(0_72%_45%)]','High Spend, No Sales':'bg-[hsl(20_90%_50%/.15)] text-[hsl(20_80%_42%)]','Low ACOS':'bg-[hsl(160_84%_39%/.15)] text-[hsl(160_84%_30%)]','Low Visibility':'bg-[hsl(217_91%_60%/.15)] text-[hsl(217_91%_45%)]'};
+  return `<span class="rounded-full px-2 py-0.5 text-xs font-medium ${map[rule]||'bg-secondary'}">${rule}</span>`;
+}
+
+function fmtDate(s){ if(!s) return '—'; const d=new Date(s); return isNaN(d)? '—' : d.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'2-digit'}); }
+function lastChangeCell(r){
+  if(!r.last_change) return '<span class="text-xs text-muted-foreground">never</span>';
+  const note=r.last_note?` · ${esc(r.last_note)}`:'';
+  return `<span class="text-xs" title="${esc(r.last_change)}${note}">${fmtDate(r.last_change)}${r.last_note?' <span class=\"text-muted-foreground\">ⓘ</span>':''}</span>`;
+}
+function tosCell(share){
+  if(share==null) return '<span class="text-xs text-muted-foreground">—</span>';
+  const pct=share<=1? share*100 : share;            // fraction or already-percent
+  let c='0 72% 51%'; if(pct>=40) c='160 84% 39%'; else if(pct>=15) c='38 92% 50%';
+  return `<span class="rounded-full px-2 py-0.5 text-xs font-medium num" style="background:hsl(${c}/.15);color:hsl(${c})">${pct.toFixed(0)}%</span>`;
+}
+
+function renderKw(){
+  const body=document.getElementById('kwBody'); body.innerHTML='';
+  keywords.filter(r=>r.rule).forEach(r=>{
+    const i=keywords.indexOf(r); const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="kwchk accent-amber" checked></td>
+      <td class="px-3 py-2 max-w-[150px] truncate" title="${esc(r.campaign||'')}">${esc(r.campaign||'')}</td>
+      <td class="px-3 py-2 max-w-[180px] truncate" title="${esc(r.keyword||'')}">${esc(r.keyword||'')}</td>
+      <td class="px-3 py-2 text-xs">${esc(r.match||'')}</td>
+      <td class="px-3 py-2 text-right">${tosCell(r.tos_share)}</td>
+      <td class="px-3 py-2 text-right num">${r.clicks}</td>
+      <td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
+      <td class="px-3 py-2">${lastChangeCell(r)}</td>
+      <td class="px-3 py-2 text-right num text-muted-foreground">$${(r.current_bid||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.new_bid||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right"><input type="number" min="0.02" step="0.05" value="${(r.new_bid||0).toFixed(2)}" data-i="${i}" class="kwbid w-20 rounded-md border border-input bg-background px-2 py-1 text-xs num text-right"></td>
+      <td class="px-3 py-2">${ruleBadge(r.rule)}</td>`;
+    body.appendChild(tr);
+  });
+  if(!body.children.length) body.innerHTML='<tr><td colspan="14" class="px-3 py-8 text-center text-sm text-muted-foreground">No keyword bid changes suggested.</td></tr>';
+}
+
+function renderPl(){
+  const body=document.getElementById('plBody'); body.innerHTML='';
+  // Show rows that change now OR that were changed before (history).
+  placements.filter(r=>r.changed || r.last_change).forEach(r=>{
+    const i=placements.indexOf(r); const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
+    const arrow = r.new_pct>r.current_pct?'↑':(r.new_pct<r.current_pct?'↓':'');
+    const chk = r.changed ? `<input type="checkbox" data-i="${i}" class="plchk accent-amber" checked>` : '<span class="text-xs text-muted-foreground">—</span>';
+    const newCell = r.changed ? `<span class="num font-semibold">${r.new_pct}% ${arrow}</span>` : '<span class="text-xs text-muted-foreground">no change</span>';
+    tr.innerHTML=`<td class="px-3 py-2">${chk}</td>
+      <td class="px-3 py-2 max-w-[200px] truncate" title="${esc(r.campaign||'')}">${esc(r.campaign||'')}</td>
+      <td class="px-3 py-2 text-xs">${esc(r.placement||'')}</td>
+      <td class="px-3 py-2 text-right num">${r.clicks}</td>
+      <td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
+      <td class="px-3 py-2">${lastChangeCell(r)}</td>
+      <td class="px-3 py-2 text-right num text-muted-foreground">${r.current_pct}%</td>
+      <td class="px-3 py-2 text-right">${newCell}</td>`;
+    body.appendChild(tr);
+  });
+  if(!body.children.length) body.innerHTML='<tr><td colspan="10" class="px-3 py-8 text-center text-sm text-muted-foreground">No placement changes or history.</td></tr>';
+}
+
+function toggleAll(which,box){ document.querySelectorAll('.'+which+'chk').forEach(c=>c.checked=box.checked); }
+
+async function applyChanges(){
+  const kw=[]; document.querySelectorAll('.kwchk:checked').forEach(c=>{ const r=keywords[+c.dataset.i];
+    const inp=document.querySelector('.kwbid[data-i="'+c.dataset.i+'"]'); const bid=inp? (+inp.value) : r.new_bid;
+    if(r&&bid>0) kw.push({target_id:r.keywordId, bid:bid}); });
+  const pl=[]; document.querySelectorAll('.plchk:checked').forEach(c=>{ const r=placements[+c.dataset.i]; pl.push({placement_id:r.placementId, pct:r.new_pct}); });
+  if(!kw.length && !pl.length){ toast('Nothing selected','error'); return; }
+  if(!confirm(`Apply ${kw.length} keyword bid + ${pl.length} placement change(s) live via AdLabs?`)) return;
+  const btn=document.getElementById('applyBtn'); btn.disabled=true; btn.textContent='Applying…';
+  try{
+    const res=await fetch('/ads/apply',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile_id:profileId, keyword_updates:kw, placement_updates:pl})}).then(r=>r.json());
+    if(res.success){ toast(`Applied ${res.applied.keywords} bids, ${res.applied.placements} placements`,'success'); }
+    else { toast((res.errors||['Apply failed']).join('; '),'error'); }
+  } finally { btn.disabled=false; btn.textContent='Apply selected'; }
+}
+
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+</script>
+{% endblock %}

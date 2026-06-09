@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in · Amazon Ops Suite</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{ color-scheme:dark; }
+    body{ margin:0; min-height:100dvh; display:grid; place-items:center; font-family:Inter,system-ui,sans-serif;
+      background:
+        radial-gradient(45% 60% at 20% 0%, hsl(258 90% 60% / .18), transparent 70%),
+        radial-gradient(40% 60% at 85% 10%, hsl(160 84% 39% / .14), transparent 70%),
+        #0a0f1c;
+      color:#e6edf6; }
+    .wrap{ width:100%; max-width:430px; padding:24px; }
+    .brand{ display:flex; justify-content:center; margin-bottom:44px; }
+    .logo{ background:#fff; border-radius:12px; padding:11px 16px; display:inline-flex; align-items:center; }
+    .logo img{ height:28px; width:auto; display:block; }
+    h1{ font-size:26px; font-weight:800; text-align:center; margin:4px 0 2px; letter-spacing:-.02em; }
+    p.sub{ text-align:center; color:#9aa7bd; margin:0 0 22px; font-size:14px; }
+    #sign-in{ display:flex; justify-content:center; }
+    /* Make Clerk's widget readable on the dark background */
+    .cl-socialButtonsBlockButton,
+    .cl-socialButtonsBlockButton *:not(svg):not(img),
+    .cl-socialButtonsBlockButtonText{ color:#e6edf6 !important; }
+    .cl-socialButtonsBlockButton{ background:#0e1626 !important; border:1px solid #2a3650 !important; }
+    .cl-socialButtonsBlockButton:hover{ background:#16223a !important; }
+    .cl-headerTitle{ color:#e6edf6 !important; }
+    .cl-headerSubtitle,.cl-dividerText{ color:#9aa7bd !important; }
+    /* Google-only: hide the "Don't have an account? Sign up" prompt */
+    .cl-footerAction,.cl-footerAction__signIn,.cl-footerActionText,.cl-footerActionLink{ display:none !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <span class="logo"><img src="https://www.esellerworld.com/logo.svg" alt="eSeller World"></span>
+    </div>
+    <h1>Sign in</h1>
+    <p class="sub">Use your eSeller World Google account to continue.</p>
+    <div id="sign-in"></div>
+  </div>
+
+  {% if clerk_frontend_api %}
+  <script async crossorigin="anonymous"
+    data-clerk-publishable-key="{{ clerk_pk }}"
+    src="https://{{ clerk_frontend_api }}/npm/@clerk/clerk-js@5/dist/clerk.browser.js"
+    type="text/javascript"></script>
+  <script>
+    window.addEventListener('load', async function () {
+      try {
+        await Clerk.load({ appearance: { variables: {
+          colorBackground:'#0e1626', colorInputBackground:'#0e1626',
+          colorText:'#e6edf6', colorTextSecondary:'#9aa7bd',
+          colorPrimary:'#7c5cff', colorInputText:'#e6edf6', borderRadius:'0.6rem'
+        }}});
+        if (Clerk.user) { window.location.href = '/'; return; }
+        Clerk.mountSignIn(document.getElementById('sign-in'), {
+          forceRedirectUrl: '/', signUpForceRedirectUrl: '/'
+        });
+      } catch (e) {
+        document.getElementById('sign-in').innerHTML =
+          '<p style="color:#f87171;text-align:center">Could not load sign-in. Check Clerk configuration.</p>';
+      }
+    });
+  </script>
+  {% else %}
+  <p class="note" style="color:#f87171">Clerk is not configured. Set CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY.</p>
+  {% endif %}
+</body>
+</html>

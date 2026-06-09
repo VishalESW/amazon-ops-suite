@@ -1,0 +1,1773 @@
+{% extends "base.html" %}
+{% set active = 'dashboard' %}
+{% block title %}Ad Performance Dashboard{% endblock %}
+
+{% block head %}
+<!-- Chart.js for impression trend graphs -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+/*
+ * Hallmark · macrostructure: Workbench · genre: modern-minimal · theme: Cobalt-adapted
+ * tone: instrument-panel · enrichment: none (data is the content)
+ * nav: N1b (existing) · footer: none (dashboard app)
+ * Hallmark · pre-emit critique: P4 H5 E4 S5 R4 V3
+ */
+
+/* ─── Dashboard token overrides (Cobalt register) ─────────────────────── */
+:root {
+  --db-cobalt:       hsl(221 83% 53%);
+  --db-cobalt-light: hsl(221 83% 96%);
+  --db-cobalt-muted: hsl(221 60% 70%);
+  --db-surface:      hsl(220 14% 98%);
+  --db-surface-2:    hsl(220 14% 95%);
+  --db-row-hover:    hsl(221 83% 98%);
+  --db-expand-bg:    hsl(220 20% 97%);
+  --db-sp:           hsl(221 83% 53%);
+  --db-sb:           hsl(271 70% 53%);
+  --db-sd:           hsl(160 70% 38%);
+  --db-enabled:      hsl(142 71% 45%);
+  --db-paused:       hsl(38 92% 50%);
+  --db-radius:       6px;
+  --db-radius-lg:    10px;
+}
+.dark {
+  --db-surface:      hsl(222 44% 9%);
+  --db-surface-2:    hsl(222 44% 12%);
+  --db-row-hover:    hsl(221 50% 14%);
+  --db-expand-bg:    hsl(222 44% 11%);
+  --db-cobalt-light: hsl(221 50% 18%);
+}
+
+/* ─── Layout ───────────────────────────────────────────────────────────── */
+.db-outer {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: calc(100dvh - 4rem);
+}
+
+/* ─── Stats bar ────────────────────────────────────────────────────────── */
+.stat-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1px;
+  background: hsl(var(--border));
+  border-radius: var(--db-radius-lg);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+}
+.stat-cell {
+  background: hsl(var(--card));
+  padding: .875rem 1.25rem;
+}
+.stat-label {
+  font-size: .7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: hsl(var(--muted-foreground));
+}
+.stat-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  line-height: 1.2;
+  margin-top: .25rem;
+}
+
+/* ─── Tab bar ──────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+.tab-btn {
+  padding: .75rem 1.5rem;
+  font-size: .8rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.tab-btn:hover { color: hsl(var(--foreground)); }
+.tab-btn.active {
+  color: var(--db-cobalt);
+  border-bottom-color: var(--db-cobalt);
+}
+
+/* ─── Product tree ─────────────────────────────────────────────────────── */
+.product-row {
+  display: grid;
+  grid-template-columns: 2rem 3.5rem 1fr repeat(9, minmax(74px, 1fr)) 2rem;
+  align-items: center;
+  gap: 0 .5rem;
+  padding: .625rem .75rem;
+  border-bottom: 1px solid hsl(var(--border));
+  cursor: pointer;
+  transition: background .1s;
+  font-size: .8rem;
+}
+.product-row:hover { background: var(--db-row-hover); }
+/* Parent (variation family) row — stands out as a group header */
+.parent-row {
+  background: var(--db-surface-2);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.parent-row:hover { background: var(--db-row-hover); }
+.parent-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--db-cobalt);
+  background: var(--db-cobalt-light);
+  border-radius: 3px;
+  padding: .1rem .4rem;
+}
+/* Child wrapper — tinted + left accent so nesting reads clearly */
+.child-wrap {
+  background: var(--db-expand-bg);
+  border-left: 3px solid var(--db-cobalt);
+}
+.child-wrap .product-row { padding-left: 1.5rem; }
+.product-img {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: var(--db-radius);
+  object-fit: contain;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+}
+.product-title {
+  font-weight: 600;
+  font-size: .8rem;
+  line-height: 1.3;
+  color: hsl(var(--foreground));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.product-rank {
+  font-size: .65rem;
+  font-weight: 600;
+  color: var(--db-cobalt);
+  margin-top: .15rem;
+}
+.product-rank .num { font-family: 'JetBrains Mono', monospace; }
+.product-rank .rank-cat { color: hsl(var(--muted-foreground)); font-weight: 500; }
+.product-asin {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .65rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: .15rem;
+}
+
+/* ─── Campaign type section ────────────────────────────────────────────── */
+.ctype-section {
+  background: var(--db-expand-bg);
+  border-bottom: 1px solid hsl(var(--border));
+}
+.ctype-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .75rem .45rem 3.5rem;
+  cursor: pointer;
+  font-size: .75rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  transition: background .1s;
+}
+.ctype-header:hover { background: hsl(var(--accent)); }
+.ctype-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 1.2rem;
+  border-radius: 3px;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #fff;
+}
+.badge-SP { background: var(--db-sp); }
+.badge-SB { background: var(--db-sb); }
+.badge-SD { background: var(--db-sd); }
+
+/* ─── Campaign row ─────────────────────────────────────────────────────── */
+.camp-row {
+  display: grid;
+  grid-template-columns: 2rem 1fr repeat(7, minmax(70px, 1fr)) 2rem;
+  align-items: center;
+  gap: 0 .5rem;
+  padding: .45rem .75rem .45rem 4.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+  cursor: pointer;
+  font-size: .75rem;
+  transition: background .1s;
+  background: hsl(var(--background));
+}
+.camp-row:hover { background: var(--db-row-hover); }
+/* Column-label header inside each campaign-type section — same grid as .camp-row */
+.camp-col-header {
+  display: grid;
+  grid-template-columns: 2rem 1fr repeat(7, minmax(70px, 1fr)) 2rem;
+  gap: 0 .5rem;
+  padding: .4rem .75rem .4rem 4.5rem;
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: .6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+}
+.camp-col-header span { text-align: right; }
+.camp-col-header span:nth-child(1),
+.camp-col-header span:nth-child(2) { text-align: left; }
+.camp-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.state-dot {
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.state-enabled { background: var(--db-enabled); }
+.state-paused  { background: var(--db-paused); }
+
+/* ─── Search terms row ─────────────────────────────────────────────────── */
+.st-btn {
+  margin: 0 .75rem .45rem 4.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .7rem;
+  font-weight: 600;
+  color: var(--db-cobalt);
+  cursor: pointer;
+  border: 1px solid var(--db-cobalt);
+  border-radius: var(--db-radius);
+  padding: .2rem .65rem;
+  background: var(--db-cobalt-light);
+  transition: background .12s;
+}
+.st-btn:hover { background: hsl(221 83% 90%); }
+
+/* ─── Keyword table ────────────────────────────────────────────────────── */
+.kw-table-wrap {
+  overflow-x: auto;
+  background: hsl(var(--background));
+  border-bottom: 2px solid hsl(var(--border));
+}
+.kw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .72rem;
+  white-space: nowrap;
+}
+.kw-table th {
+  padding: .4rem .65rem;
+  text-align: right;
+  font-size: .63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.kw-table th:first-child { text-align: left; }
+.kw-table td {
+  padding: .45rem .65rem;
+  text-align: right;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+.kw-table td:first-child { text-align: left; }
+.kw-table tr:hover td { background: var(--db-row-hover); cursor: pointer; }
+.kw-table tr:last-child td { border-bottom: none; }
+.kw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: .65rem;
+  padding: .1rem .4rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.kw-exact   { background: hsl(221 83% 94%); color: hsl(221 83% 40%); }
+.kw-phrase  { background: hsl(271 70% 94%); color: hsl(271 70% 40%); }
+.kw-broad   { background: hsl(160 70% 92%); color: hsl(160 70% 30%); }
+.kw-other   { background: hsl(var(--muted)); color: hsl(var(--muted-foreground)); }
+.source-pill {
+  font-size: .6rem;
+  padding: .1rem .4rem;
+  border-radius: 3px;
+  font-weight: 600;
+  background: hsl(38 92% 92%);
+  color: hsl(38 80% 35%);
+}
+.source-manual {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+/* ─── SQP table ────────────────────────────────────────────────────────── */
+.sqp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .75rem;
+}
+.sqp-table th {
+  padding: .5rem .75rem;
+  text-align: right;
+  font-size: .65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.sqp-table th:first-child { text-align: left; }
+.sqp-table td {
+  padding: .5rem .75rem;
+  text-align: right;
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.sqp-table td:first-child { text-align: left; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.sqp-table tr:hover td { background: var(--db-row-hover); }
+
+/* ─── Keyword detail drawer ────────────────────────────────────────────── */
+.drawer-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  z-index: 50;
+  opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity .2s, visibility 0s .2s;
+}
+.drawer-overlay.open {
+  opacity: 1; pointer-events: auto; visibility: visible;
+  transition: opacity .2s, visibility 0s 0s;
+}
+.drawer-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(640px, 100vw);
+  background: hsl(var(--card));
+  border-left: 1px solid hsl(var(--border));
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(110%);   /* 110% ensures border is also off-screen */
+  visibility: hidden;            /* belt-and-suspenders: truly invisible when closed */
+  transition: transform .22s cubic-bezier(.22,1,.36,1), visibility 0s .22s;
+  overflow: hidden;
+}
+.drawer-panel.open {
+  transform: translateX(0);
+  visibility: visible;
+  transition: transform .22s cubic-bezier(.22,1,.36,1), visibility 0s 0s;
+}
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid hsl(var(--border));
+  flex-shrink: 0;
+}
+.drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.drawer-section {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--db-radius-lg);
+  overflow: hidden;
+}
+.drawer-section-title {
+  padding: .6rem 1rem;
+  font-size: .7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 1px;
+  background: hsl(var(--border));
+}
+.metric-cell {
+  background: hsl(var(--card));
+  padding: .75rem 1rem;
+}
+.metric-label {
+  font-size: .65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+}
+.metric-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-top: .2rem;
+}
+.chart-wrap {
+  padding: 1rem;
+  background: hsl(var(--card));
+}
+
+/* ─── Search terms inline table ────────────────────────────────────────── */
+/* Drawer ST section: fixed height, internal scroll — never pushes other sections */
+#dStWrap {
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+/* Inline ST (inside campaign row in product tree): same treatment */
+.st-scroll-wrap {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.st-inner-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .72rem;
+}
+.st-inner-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.st-inner-table th {
+  padding: .4rem .75rem;
+  text-align: right;
+  font-size: .63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.st-inner-table th:first-child { text-align: left; }
+.st-inner-table td {
+  padding: .4rem .75rem;
+  text-align: right;
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.st-inner-table td:first-child { text-align: left; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.st-inner-table tr:last-child td { border-bottom: none; }
+
+/* ─── Loading state ────────────────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.loading-overlay.active { opacity: 1; pointer-events: auto; }
+.loading-card {
+  background: hsl(var(--card));
+  border-radius: var(--db-radius-lg);
+  padding: 2rem 2.5rem;
+  text-align: center;
+  min-width: 280px;
+  border: 1px solid hsl(var(--border));
+}
+.spinner {
+  width: 2rem; height: 2rem;
+  border: 3px solid hsl(var(--border));
+  border-top-color: var(--db-cobalt);
+  border-radius: 50%;
+  margin: 0 auto 1rem;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+/* ─── AI Drawer ────────────────────────────────────────────────────────── */
+.ai-output {
+  font-size: .85rem;
+  line-height: 1.65;
+  color: hsl(var(--foreground));
+}
+.ai-output h3 {
+  font-size: .8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--db-cobalt);
+  margin: 1.4rem 0 .5rem;
+  padding-bottom: .35rem;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.ai-output h3:first-child { margin-top: 0; }
+.ai-output p { margin: 0 0 .75rem; }
+.ai-output strong { font-weight: 700; color: hsl(var(--foreground)); }
+.ai-output ul { margin: 0 0 .85rem; padding: 0; list-style: none; }
+.ai-output li {
+  position: relative;
+  padding: .55rem .75rem .55rem 1.6rem;
+  margin-bottom: .4rem;
+  background: hsl(var(--muted));
+  border-radius: var(--db-radius);
+  border-left: 2px solid var(--db-cobalt);
+}
+.ai-output li::before {
+  content: "";
+  position: absolute;
+  left: .7rem; top: .95rem;
+  width: .35rem; height: .35rem;
+  border-radius: 50%;
+  background: var(--db-cobalt);
+}
+.ai-output li .num { font-family: 'JetBrains Mono', monospace; }
+.ai-output .ai-action { color: hsl(142 71% 38%); font-weight: 600; }
+
+/* ─── Misc ─────────────────────────────────────────────────────────────── */
+.col-header {
+  display: grid;
+  grid-template-columns: 2rem 3.5rem 1fr repeat(9, minmax(74px, 1fr)) 2rem;
+  gap: 0 .5rem;
+  padding: .5rem .75rem;
+  background: hsl(var(--muted));
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: .63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: hsl(var(--muted-foreground));
+}
+.col-header span { text-align: right; }
+.col-header span:nth-child(1),
+.col-header span:nth-child(2),
+.col-header span:nth-child(3) { text-align: left; }
+.chevron {
+  transition: transform .15s;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
+.chevron.open { transform: rotate(90deg); }
+.num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+.acos-good { color: hsl(142 71% 38%); }
+.acos-warn { color: hsl(38 92% 42%); }
+.acos-bad  { color: hsl(0 72% 51%); }
+.empty-state {
+  padding: 3rem;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+  font-size: .85rem;
+}
+html, body { overflow-x: clip; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="db-outer -mx-6 -mt-0">
+
+  <!-- ─── Top controls ──────────────────────────────────────────────────── -->
+  <div class="border-b border-border bg-card px-6 py-4">
+    <div class="flex flex-wrap items-end gap-3">
+
+      <!-- Title -->
+      <div class="mr-2">
+        <h1 class="text-lg font-bold tracking-tight leading-none">Ad Performance Dashboard</h1>
+        <p class="text-xs text-muted-foreground mt-0.5">Products → Campaigns → Keywords · powered by AdLabs</p>
+      </div>
+
+      <!-- Profile selector -->
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-muted-foreground">Profile</label>
+        <select id="profile" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring min-w-[200px]">
+          <option value="">Loading profiles…</option>
+        </select>
+      </div>
+
+      <!-- Date range presets -->
+      <div class="flex flex-col gap-1">
+        <label class="text-xs font-semibold text-muted-foreground">Date range</label>
+        <div class="flex items-center gap-1">
+          <div class="flex border border-input rounded-md overflow-hidden bg-background text-xs font-semibold">
+            {% for d, label in [(7,"7D"),(15,"15D"),(30,"30D"),(60,"60D"),(90,"90D")] %}
+            <button onclick="setPreset({{d}})" data-days="{{d}}"
+                    class="preset-btn px-2.5 py-1.5 border-r border-input last:border-r-0 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">{{label}}</button>
+            {% endfor %}
+            <button onclick="toggleCustomDate()" id="customBtn"
+                    class="preset-btn px-2.5 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Custom</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom date inputs (hidden by default) -->
+      <div id="customDateWrap" class="hidden flex-col gap-1">
+        <label class="text-xs font-semibold text-muted-foreground">Custom range</label>
+        <div class="flex items-center gap-1.5">
+          <input id="startDate" type="date" class="rounded-md border border-input bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+          <span class="text-xs text-muted-foreground">to</span>
+          <input id="endDate" type="date" class="rounded-md border border-input bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        </div>
+      </div>
+
+      <!-- Load button -->
+      <button onclick="loadDashboard()" id="loadBtn"
+              class="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-semibold text-background hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/></svg>
+        Load Data
+      </button>
+
+      <!-- AI Analyze -->
+      <button onclick="openAI()" id="aiBtn" disabled
+              class="inline-flex items-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a5 5 0 1 0 0 10A5 5 0 0 0 12 2z"/><path d="M2 21a10 10 0 0 1 20 0"/><path d="M16 11.5a4 4 0 0 1-8 0"/></svg>
+        AI Insights
+      </button>
+
+      <!-- Range label -->
+      <span id="rangeLabel" class="text-xs text-muted-foreground ml-auto self-end"></span>
+    </div>
+  </div>
+
+  <!-- ─── Stats bar ──────────────────────────────────────────────────────── -->
+  <div id="statsBar" class="hidden px-6 py-4 border-b border-border bg-background">
+    <div class="stat-bar">
+      <div class="stat-cell">
+        <div class="stat-label">Products</div>
+        <div class="stat-val num" id="stat-products">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Campaigns</div>
+        <div class="stat-val num" id="stat-campaigns">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Keywords</div>
+        <div class="stat-val num" id="stat-keywords">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Total Spend</div>
+        <div class="stat-val num" id="stat-spend">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Ad Sales</div>
+        <div class="stat-val num" id="stat-sales">—</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">ACOS</div>
+        <div class="stat-val num" id="stat-acos">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Tab bar ────────────────────────────────────────────────────────── -->
+  <div class="tab-bar px-6">
+    <button class="tab-btn active" onclick="switchTab('products', this)">Products &amp; Campaigns</button>
+    <button class="tab-btn" onclick="switchTab('sqp', this)">SQP Analytics</button>
+  </div>
+
+  <!-- ─── Products tab ───────────────────────────────────────────────────── -->
+  <div id="tab-products" class="tab-panel">
+    <!-- Column headers -->
+    <div id="productHeaders" class="col-header hidden">
+      <span></span><span>Image</span><span>Product / ASIN</span>
+      <span>Inventory</span><span>Price</span><span>Impr.</span>
+      <span>Clicks</span><span>CTR</span><span>Ad Sales</span>
+      <span>Spend</span><span>ACOS</span><span>Avg CoC</span>
+      <span></span>
+    </div>
+    <div id="productList">
+      <div class="empty-state">
+        <svg class="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <p>Select a profile and date range, then click <strong>Load Data</strong>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── SQP tab ────────────────────────────────────────────────────────── -->
+  <div id="tab-sqp" class="tab-panel hidden">
+    <div class="p-4 border-b border-border bg-card flex items-center gap-3">
+      <div class="flex border border-input rounded-md overflow-hidden bg-background text-xs font-semibold">
+        <button onclick="setSqpView('brand', this)" class="sqp-view-btn px-3 py-1.5 bg-foreground text-background">Brand View</button>
+        <button onclick="setSqpView('asin', this)"  class="sqp-view-btn px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">ASIN View</button>
+      </div>
+      <button onclick="loadSQP()" id="sqpLoadBtn"
+              class="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-40 disabled:pointer-events-none">
+        Load SQP
+      </button>
+      <span id="sqpStatus" class="text-xs text-muted-foreground"></span>
+    </div>
+
+    <!-- SQP view toggle: brand vs ASIN -->
+    <div id="sqpBrandView" class="overflow-x-auto">
+      <div class="empty-state" id="sqpEmpty">Load SQP data to see search query performance metrics.</div>
+      <table class="sqp-table hidden" id="sqpBrandTable">
+        <thead>
+          <tr>
+            <th>Search Query</th>
+            <th>Volume</th>
+            <th>Brand</th>
+            <th>Purchases</th>
+            <th>Purchase Share</th>
+            <th>Clicks</th>
+            <th>Click Share</th>
+            <th>Impressions</th>
+            <th>Imp. Share</th>
+            <th>Conversion</th>
+            <th>Cart Adds</th>
+            <th>Targeted?</th>
+          </tr>
+        </thead>
+        <tbody id="sqpBrandBody"></tbody>
+      </table>
+    </div>
+    <div id="sqpAsinView" class="hidden overflow-x-auto">
+      <table class="sqp-table" id="sqpAsinTable">
+        <thead>
+          <tr>
+            <th>Search Query</th>
+            <th>Volume</th>
+            <th>ASIN</th>
+            <th>Title</th>
+            <th>Purchases</th>
+            <th>Purchase Share</th>
+            <th>Clicks</th>
+            <th>Click Share</th>
+            <th>Impressions</th>
+            <th>Imp. Share</th>
+            <th>Conversion</th>
+            <th>Targeted?</th>
+          </tr>
+        </thead>
+        <tbody id="sqpAsinBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Keyword detail drawer ───────────────────────────────────────────── -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer-panel" id="drawerPanel">
+  <div class="drawer-header">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span id="dKwPill" class="kw-pill kw-exact text-xs">EXACT</span>
+        <span id="dState" class="text-xs font-semibold"></span>
+      </div>
+      <h2 id="dKwText" class="text-base font-bold mt-1 break-words"></h2>
+      <p id="dCampName" class="text-xs text-muted-foreground mt-0.5"></p>
+    </div>
+    <button onclick="closeDrawer()" class="shrink-0 rounded-md p-1.5 hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <div class="drawer-body">
+    <!-- Metrics grid -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Key Metrics</div>
+      <div class="metric-grid" id="dMetrics">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <!-- Impression trend chart -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Impression Trend — Current vs Prior Period</div>
+      <div class="chart-wrap" style="height:180px;position:relative;">
+        <canvas id="impressionChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Bid info -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Bid History</div>
+      <div id="dBidHistory" class="p-4 text-sm"></div>
+    </div>
+
+    <!-- Match types -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">Match Type</div>
+      <div id="dMatchTypes" class="p-4 flex gap-2 flex-wrap"></div>
+    </div>
+
+    <!-- Cross-campaign targeting -->
+    <div class="drawer-section" id="dCrossCampSection">
+      <div class="drawer-section-title">Also Targeted In</div>
+      <div id="dCrossCamps" class="p-4 text-sm"></div>
+    </div>
+
+    <!-- Search terms for this keyword's campaign -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">
+        <span>Search Terms</span>
+        <span id="dStCampName" class="font-normal text-muted-foreground ml-1 normal-case text-xs"></span>
+      </div>
+      <div id="dStWrap">
+        <div class="p-4 text-center">
+          <button onclick="loadDrawerST()" id="dStBtn"
+                  class="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
+            Load Search Terms
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─── AI insights modal ────────────────────────────────────────────────── -->
+<div class="loading-overlay" id="aiOverlay">
+  <div class="loading-card" style="max-width:520px">
+    <div class="spinner"></div>
+    <div class="text-sm font-semibold">Analyzing with AI…</div>
+    <div class="text-xs text-muted-foreground mt-1" id="aiProgress">This can take up to a minute…</div>
+  </div>
+</div>
+
+<!-- AI insights — centered modal (not a side drawer, so keyword panel stays unaffected) -->
+<div id="aiResultOverlay" style="
+  position:fixed;inset:0;z-index:200;
+  background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;
+  padding:1rem;
+  opacity:0;pointer-events:none;
+  transition:opacity .2s;
+" onclick="if(event.target===this)closeAIResult()">
+  <div id="aiResultPanel" style="
+    background:hsl(var(--card));
+    border:1px solid hsl(var(--border));
+    border-radius:var(--db-radius-lg);
+    width:100%;max-width:640px;
+    max-height:85vh;
+    display:flex;flex-direction:column;
+    transform:translateY(12px);
+    transition:transform .22s cubic-bezier(.22,1,.36,1);
+    overflow:hidden;
+  ">
+    <!-- modal header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;
+                padding:1.1rem 1.4rem;border-bottom:1px solid hsl(var(--border));flex-shrink:0;">
+      <div>
+        <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+                    color:hsl(var(--muted-foreground));">AI Insights</div>
+        <h2 style="font-size:1rem;font-weight:700;margin-top:.2rem;">Campaign Analysis</h2>
+      </div>
+      <button onclick="closeAIResult()" style="
+        flex-shrink:0;padding:.375rem;border-radius:var(--db-radius);
+        border:none;background:transparent;cursor:pointer;
+        color:hsl(var(--muted-foreground));transition:background .12s;
+      " onmouseover="this.style.background='hsl(var(--accent))'"
+        onmouseout="this.style.background='transparent'">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <!-- modal body — scrollable -->
+    <div style="flex:1 1 auto;overflow-y:auto;padding:1.25rem 1.4rem;">
+      <div class="ai-output" id="aiResultText"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Loading overlay ──────────────────────────────────────────────────── -->
+<div class="loading-overlay" id="mainLoading">
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <div class="text-sm font-semibold" id="loadingTitle">Loading data…</div>
+    <div class="text-xs text-muted-foreground mt-1" id="loadingMsg">Connecting to AdLabs</div>
+  </div>
+</div>
+
+<!-- ─── JavaScript ───────────────────────────────────────────────────────── -->
+<script>
+/* ─── State ──────────────────────────────────────────────────────────────── */
+let profiles        = [];
+let dashData        = null;   // full load result
+let sqpRows         = [];     // raw SQP rows
+let sqpView         = 'brand';
+let lookback        = 30;
+let useCustom       = false;
+let currentStartDate= null;
+let currentEndDate  = null;
+let currentKw       = null;   // keyword dict open in drawer
+let teamId          = null;
+let profileId       = null;
+let impressionChart = null;
+let kwMap           = {};     // kwId → target object (avoids JSON-in-onclick)
+
+/* ─── Helpers ────────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const fmt$  = v => v == null ? '—' : '$' + Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtN  = v => v == null ? '—' : Number(v).toLocaleString('en-US');
+const fmtPct= v => v == null ? '—' : (v*100).toFixed(1)+'%';
+const fmtPct2= v => v == null ? '—' : (v*100).toFixed(2)+'%';
+const esc   = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function acosClass(v) {
+  if (v == null) return '';
+  if (v < 0.20) return 'acos-good';
+  if (v < 0.35) return 'acos-warn';
+  return 'acos-bad';
+}
+
+function kwClass(m) {
+  m = (m||'').toUpperCase();
+  if (m.includes('EXACT'))  return 'kw-exact';
+  if (m.includes('PHRASE')) return 'kw-phrase';
+  if (m.includes('BROAD'))  return 'kw-broad';
+  return 'kw-other';
+}
+
+function toast(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = 'fixed bottom-6 right-6 z-50 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium shadow-lift fadeup';
+  el.style.color = type==='error' ? 'hsl(0 72% 51%)' : 'hsl(var(--foreground))';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 4000);
+}
+
+function setLoading(active, title='', msg='') {
+  $('mainLoading').classList.toggle('active', active);
+  if (title) $('loadingTitle').textContent = title;
+  if (msg)   $('loadingMsg').textContent   = msg;
+}
+
+/* ─── Date params helper ─────────────────────────────────────────────────── */
+function dateParams() {
+  // Returns the date range params to attach to sub-requests (search-terms, SQP)
+  if (currentStartDate && currentEndDate) {
+    return { start_date: currentStartDate, end_date: currentEndDate };
+  }
+  return { lookback_days: lookback };
+}
+
+/* ─── Profile loading ────────────────────────────────────────────────────── */
+async function loadProfiles() {
+  try {
+    // Reuse the /ads/profiles endpoint (same AdLabs data)
+    const r = await fetch('/ads/profiles');
+    const d = await r.json();
+    if (!d.success) { pollProfiles(d.job_id); return; }
+    if (d.cached || d.profiles) { setProfiles(d.profiles); return; }
+    if (d.job_id) pollProfiles(d.job_id);
+  } catch(e) { toast('Could not load profiles', 'error'); }
+}
+
+async function pollProfiles(jobId) {
+  while (true) {
+    await new Promise(r=>setTimeout(r,1200));
+    try {
+      const s = await fetch(`/ads/profiles/${jobId}`).then(r=>r.json());
+      if (s.state==='done') {
+        const d = await fetch(`/ads/profiles/${jobId}/data`).then(r=>r.json());
+        setProfiles(d.profiles||[]); return;
+      }
+      if (s.state==='error') { toast('Profile load failed: '+s.error,'error'); return; }
+    } catch {}
+  }
+}
+
+function setProfiles(list) {
+  profiles = list || [];
+  const sel = $('profile');
+  sel.innerHTML = profiles.length
+    ? profiles.map(p=>`<option value="${p.team_id}||${p.slug}" data-team="${p.team_id}" data-slug="${p.slug}">${esc(p.name||p.slug)} (${p.country||''})</option>`).join('')
+    : '<option value="">No profiles found</option>';
+}
+
+/* ─── Date range ─────────────────────────────────────────────────────────── */
+function setPreset(days) {
+  lookback = days; useCustom = false;
+  $('customDateWrap').classList.add('hidden');
+  document.querySelectorAll('.preset-btn').forEach(b=>{
+    b.classList.toggle('bg-foreground', b.dataset.days==days);
+    b.classList.toggle('text-background', b.dataset.days==days);
+    b.classList.toggle('text-muted-foreground', b.dataset.days!=days);
+  });
+}
+
+function toggleCustomDate() {
+  useCustom = !useCustom;
+  $('customDateWrap').classList.toggle('hidden', !useCustom);
+  document.querySelectorAll('.preset-btn').forEach(b=>{
+    b.classList.remove('bg-foreground','text-background');
+    b.classList.add('text-muted-foreground');
+  });
+  if (useCustom) {
+    $('customBtn').classList.add('bg-foreground','text-background');
+    $('customBtn').classList.remove('text-muted-foreground');
+    // Default to last 30 days
+    const end = new Date(); end.setDate(end.getDate()-1);
+    const start = new Date(end); start.setDate(start.getDate()-29);
+    $('endDate').value   = end.toISOString().slice(0,10);
+    $('startDate').value = start.toISOString().slice(0,10);
+  }
+}
+
+/* ─── Load dashboard ─────────────────────────────────────────────────────── */
+async function loadDashboard() {
+  const sel = $('profile');
+  if (!sel.value) { toast('Pick a profile first', 'error'); return; }
+  const [tid, slug] = sel.value.split('||');
+  teamId = tid;
+
+  // Look up the selected profile's name + brand so the backend can match the
+  // correct SP-API account (for images, inventory, pricing).
+  const selProfile = profiles.find(p => String(p.team_id)===String(tid) && p.slug===slug) || {};
+
+  const body = {
+    team_id: tid, slug,
+    profile_name: selProfile.name || '',
+    brand:        selProfile.brand || '',
+  };
+  if (useCustom) {
+    currentStartDate   = $('startDate').value;
+    currentEndDate     = $('endDate').value;
+    body.start_date    = currentStartDate;
+    body.end_date      = currentEndDate;
+  } else {
+    currentStartDate   = null;
+    currentEndDate     = null;
+    body.lookback_days = lookback;
+  }
+
+  setLoading(true, 'Loading dashboard…', 'Connecting to AdLabs');
+  try {
+    const jr = await fetch('/dashboard/load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if (!jr.success) { setLoading(false); toast(jr.error||'Load failed','error'); return; }
+    await pollLoad(jr.job_id);
+  } catch(e) { setLoading(false); toast('Network error','error'); }
+}
+
+async function pollLoad(jobId) {
+  while (true) {
+    await new Promise(r=>setTimeout(r,1200));
+    try {
+      const s = await fetch(`/dashboard/load/${jobId}`).then(r=>r.json());
+      if (s.progress) $('loadingMsg').textContent = s.progress;
+      if (s.state==='done') {
+        const d = await fetch(`/dashboard/load/${jobId}/data`).then(r=>r.json());
+        setLoading(false);
+        if (!d.success) { toast(d.error||'Load failed','error'); return; }
+        dashData  = d;
+        profileId = d.profile_id;
+        renderDashboard(d);
+        return;
+      }
+      if (s.state==='error') { setLoading(false); toast(s.error||'Load error','error'); return; }
+    } catch {}
+  }
+}
+
+/* ─── Render ─────────────────────────────────────────────────────────────── */
+function renderDashboard(d) {
+  kwMap = {};  // clear keyword map on each fresh load
+  // Stats bar
+  const st = d.stats||{};
+  $('stat-products').textContent  = st.products  ?? '—';
+  $('stat-campaigns').textContent = st.campaigns ?? '—';
+  $('stat-keywords').textContent  = st.keywords  ?? '—';
+  $('stat-spend').textContent     = fmt$(st.total_spend);
+  $('stat-sales').textContent     = fmt$(st.total_sales);
+  $('stat-acos').textContent      = fmtPct(st.total_acos);
+  $('statsBar').classList.remove('hidden');
+  $('rangeLabel').textContent     = d.range_label || '';
+  $('aiBtn').disabled = false;
+  $('productHeaders').classList.remove('hidden');
+
+  renderProducts(d);
+}
+
+function renderProducts(d) {
+  const list = $('productList');
+  const groups = d.parent_groups || [];
+  if (!groups.length) {
+    list.innerHTML = '<div class="empty-state">No products found for this date range.</div>';
+    return;
+  }
+  // Variation families render as a parent group (expand → children);
+  // standalone products render as a normal product row.
+  list.innerHTML = groups.map(g =>
+    g.is_family ? parentGroupHTML(g) : productHTML(g.children[0])
+  ).join('');
+}
+
+function parentGroupHTML(g) {
+  const acosC = acosClass(g.acos);
+  const invTxt = g.inventory != null ? fmtN(g.inventory) : '—';
+  const theme  = g.variation_theme ? g.variation_theme.replace(/_/g,' ').toLowerCase() : 'variations';
+  return `
+<div class="product-row parent-row" onclick="toggleParent('${g.parent_asin}')">
+  <span>
+    <svg class="chevron h-4 w-4" id="pgchev-${g.parent_asin}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+  </span>
+  <span>
+    <img class="product-img" src="${esc(g.image_url)}" alt="${esc(g.parent_asin)}" loading="lazy"
+      onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'product-img',innerHTML:'<svg viewBox=\\'0 0 52 52\\' width=\\'52\\' height=\\'52\\'><rect width=\\'52\\' height=\\'52\\' rx=\\'6\\' fill=\\'#1e293b\\'/><rect x=\\'10\\' y=\\'10\\' width=\\'32\\' height=\\'28\\' rx=\\'3\\' fill=\\'none\\' stroke=\\'#334155\\' stroke-width=\\'1.5\\'/></svg>',style:'display:grid;place-items:center'}))">
+  </span>
+  <span>
+    <div class="product-title">${esc(g.title)}</div>
+    <div class="product-asin">Parent ${esc(g.parent_asin)}</div>
+    <div class="flex gap-1.5 mt-1 items-center flex-wrap">
+      <span class="parent-badge">${g.child_count} variations</span>
+      <span class="text-[11px] text-muted-foreground">${esc(theme)}</span>
+    </div>
+  </span>
+  <span class="num text-right">${invTxt}</span>
+  <span class="num text-right">—</span>
+  <span class="num text-right">${fmtN(g.impressions)}</span>
+  <span class="num text-right">${fmtN(g.clicks)}</span>
+  <span class="num text-right">${fmtPct2(g.ctr)}</span>
+  <span class="num text-right">${fmt$(g.ad_sales)}</span>
+  <span class="num text-right">${fmt$(g.spend)}</span>
+  <span class="num text-right ${acosC} font-semibold">${fmtPct(g.acos)}</span>
+  <span class="num text-right">${fmt$(g.avg_coc)}</span>
+  <span></span>
+</div>
+<div id="pgcontent-${g.parent_asin}" class="hidden child-wrap">
+  ${g.children.map(c=>productHTML(c)).join('')}
+</div>`;
+}
+
+function toggleParent(pasin) {
+  const c = $(`pgcontent-${pasin}`);
+  const v = $(`pgchev-${pasin}`);
+  if (!c) return;
+  const open = c.classList.toggle('hidden');
+  v && v.classList.toggle('open', !open);
+}
+
+function productHTML(p, i) {
+  const invTxt  = p.inventory != null ? fmtN(p.inventory) : '—';
+  const priceTxt= p.price     != null ? fmt$(p.price)     : '—';
+  const acosC   = acosClass(p.acos);
+  const camps   = (p.campaigns||{SP:[],SB:[],SD:{}});
+  const typeCounts = Object.entries(camps).map(([t,arr])=>
+    arr.length ? `<span class="ctype-badge badge-${t}">${t} ${arr.length}</span>` : ''
+  ).join('');
+
+  return `
+<div class="product-row" onclick="toggleProduct('${p.asin}')">
+  <span>
+    <svg class="chevron h-4 w-4" id="pchev-${p.asin}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+  </span>
+  <span>
+    <img class="product-img" src="${esc(p.image_url)}"
+    alt="${esc(p.asin)}" loading="lazy"
+    onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'product-img',innerHTML:'<svg viewBox=\\'0 0 52 52\\' width=\\'52\\' height=\\'52\\'><rect width=\\'52\\' height=\\'52\\' rx=\\'6\\' fill=\\'#1e293b\\'/><rect x=\\'10\\' y=\\'10\\' width=\\'32\\' height=\\'28\\' rx=\\'3\\' fill=\\'none\\' stroke=\\'#334155\\' stroke-width=\\'1.5\\'/><circle cx=\\'20\\' cy=\\'20\\' r=\\'3\\' fill=\\'#475569\\'/><path d=\\'M16 32 l6-8 4 5 3-3 7 6\\' fill=\\'none\\' stroke=\\'#475569\\' stroke-width=\\'1.5\\'/></svg>',style:'display:grid;place-items:center'}))">
+  </span>
+  <span>
+    <div class="product-title">${esc(p.title)}</div>
+    ${p.sales_rank != null ? `<div class="product-rank">BSR <span class="num">#${fmtN(p.sales_rank)}</span>${p.rank_category ? ` <span class="rank-cat">in ${esc(p.rank_category)}</span>` : ''}</div>` : ''}
+    <div class="product-asin">${esc(p.asin)}</div>
+    <div class="flex gap-1 mt-1 flex-wrap">${typeCounts}</div>
+  </span>
+  <span class="num text-right">${invTxt}</span>
+  <span class="num text-right">${priceTxt}</span>
+  <span class="num text-right">${fmtN(p.impressions)}</span>
+  <span class="num text-right">${fmtN(p.clicks)}</span>
+  <span class="num text-right">${fmtPct2(p.ctr)}</span>
+  <span class="num text-right">${fmt$(p.ad_sales)}</span>
+  <span class="num text-right">${fmt$(p.spend)}</span>
+  <span class="num text-right ${acosC} font-semibold">${fmtPct(p.acos)}</span>
+  <span class="num text-right">${fmt$(p.avg_coc)}</span>
+  <span></span>
+</div>
+<div id="pcontent-${p.asin}" class="hidden">
+  ${campaignTypesHTML(p)}
+</div>`;
+}
+
+function campaignTypesHTML(p) {
+  const camps = p.campaigns||{SP:[],SB:[],SD:[]};
+  return Object.entries(camps).filter(([,arr])=>arr.length).map(([type,arr])=>`
+<div class="ctype-section">
+  <div class="ctype-header" onclick="toggleCType('${p.asin}-${type}')">
+    <svg class="chevron h-3.5 w-3.5" id="ctchev-${p.asin}-${type}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+    <span class="ctype-badge badge-${type}">${type}</span>
+    <span>${arr.length} campaign${arr.length>1?'s':''}</span>
+    <span class="ml-auto num text-muted-foreground">${fmt$(arr.reduce((s,c)=>s+c.spend,0))} spend</span>
+  </div>
+  <div id="ctcontent-${p.asin}-${type}" class="hidden">
+    <div class="camp-col-header">
+      <span></span><span>Campaign</span>
+      <span>Impr.</span><span>Clicks</span><span>Spend</span>
+      <span>Sales</span><span>ACOS</span><span>Orders</span>
+      <span></span>
+    </div>
+    ${arr.map(c=>campaignHTML(c, type)).join('')}
+  </div>
+</div>`).join('');
+}
+
+function campaignHTML(c, type) {
+  const acosC = acosClass(c.acos);
+  const stateCls = (c.state||'').toLowerCase().includes('enabled') ? 'state-enabled' : 'state-paused';
+  return `
+<div class="camp-row" onclick="toggleCamp('${c.campaign_id}')">
+  <span>
+    <svg class="chevron h-3.5 w-3.5" id="cchev-${c.campaign_id}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+  </span>
+  <span class="camp-name flex items-center gap-1.5">
+    <span class="state-dot ${stateCls}"></span>
+    <span title="${esc(c.campaign_name)}">${esc(c.campaign_name)}</span>
+  </span>
+  <span class="num text-right">${fmtN(c.impressions)}</span>
+  <span class="num text-right">${fmtN(c.clicks)}</span>
+  <span class="num text-right">${fmt$(c.spend)}</span>
+  <span class="num text-right">${fmt$(c.sales)}</span>
+  <span class="num text-right ${acosC} font-semibold">${fmtPct(c.acos)}</span>
+  <span class="num text-right">${fmtN(c.orders)}</span>
+  <span></span>
+</div>
+<div id="ccontent-${c.campaign_id}" class="hidden">
+  ${keywordsTableHTML(c)}
+</div>`;
+}
+
+function keywordsTableHTML(c) {
+  const tgts = c.targets||[];
+  const stRow = `
+<div class="py-2 px-4" style="background:hsl(var(--background))">
+  <button class="st-btn" onclick="loadCampST('${c.campaign_id}','${esc(c.campaign_name)}')">
+    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    View search terms for this campaign
+  </button>
+</div>
+<div id="st-camp-${c.campaign_id}" class="hidden border-t border-border"></div>`;
+
+  if (!tgts.length) return `<div class="empty-state py-6">No keyword data for this campaign.</div>${stRow}`;
+
+  const rows = tgts.map((t,i)=>{
+    // Store in kwMap for drawer lookup — avoids any JSON-in-onclick issues
+    const kwId = `kw_${t.target_id || (c.campaign_id + '_' + i)}`;
+    kwMap[kwId] = t;
+    const mcls = kwClass(t.match_type);
+    const acosC = acosClass(t.acos);
+    const srcTxt = t.source==='harvested' ? 'Harvested' : 'Manual';
+    const stateIco = (t.state||'').toLowerCase().includes('enabled')
+      ? '<span class="state-dot state-enabled inline-block mr-1"></span>'
+      : '<span class="state-dot state-paused inline-block mr-1"></span>';
+    return `
+<tr onclick="openKwDrawer('${kwId}')" title="Click for detail">
+  <td>
+    ${stateIco}
+    <span title="${esc(t.keyword)}">${esc(t.keyword.length>55?t.keyword.slice(0,55)+'…':t.keyword)}</span>
+  </td>
+  <td><span class="kw-pill ${mcls}">${esc(t.match_type||'—')}</span></td>
+  <td><span class="source-pill ${t.source==='harvested'?'':'source-manual'}">${srcTxt}</span></td>
+  <td class="num ${acosC} font-semibold">${fmtPct(t.acos)}</td>
+  <td class="num">${fmt$(t.sales)}</td>
+  <td class="num">${fmt$(t.spend)}</td>
+  <td class="num">${fmtN(t.impressions)}</td>
+  <td class="num">${fmtPct2(t.impression_share)}</td>
+  <td class="num">$${t.bid.toFixed(2)}</td>
+  <td class="num">${fmtN(t.orders)}</td>
+  <td class="num text-xs">${t.cross_campaign_names&&t.cross_campaign_names.length ? `+${t.cross_campaign_names.length} camp.` : '—'}</td>
+</tr>`;
+  }).join('');
+
+  return `
+<div class="kw-table-wrap">
+<table class="kw-table">
+<thead><tr>
+  <th style="text-align:left">Keyword</th>
+  <th style="text-align:left">Match</th>
+  <th style="text-align:left">Source</th>
+  <th>ACOS</th><th>Sales</th><th>Spend</th>
+  <th>Impr.</th><th>Imp.Share</th><th>Bid</th>
+  <th>Orders</th><th>Cross-camp</th>
+</tr></thead>
+<tbody>${rows}</tbody>
+</table>
+</div>
+${stRow}`;
+}
+
+/* ─── Expand / collapse ──────────────────────────────────────────────────── */
+function toggleProduct(asin) {
+  const c = $(`pcontent-${asin}`);
+  const v = $(`pchev-${asin}`);
+  if (!c) return;
+  const open = c.classList.toggle('hidden');
+  v && v.classList.toggle('open', !open);
+}
+function toggleCType(key) {
+  const c = $(`ctcontent-${key}`);
+  const v = $(`ctchev-${key}`);
+  if (!c) return;
+  const open = c.classList.toggle('hidden');
+  v && v.classList.toggle('open', !open);
+}
+function toggleCamp(cid) {
+  const c = $(`ccontent-${cid}`);
+  const v = $(`cchev-${cid}`);
+  if (!c) return;
+  const open = c.classList.toggle('hidden');
+  v && v.classList.toggle('open', !open);
+}
+
+/* ─── Campaign search terms (inline) ─────────────────────────────────────── */
+async function loadCampST(campaignId, campName) {
+  const wrap = $(`st-camp-${campaignId}`);
+  if (!wrap) return;
+  if (!wrap.classList.contains('hidden') && wrap.dataset.loaded) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  if (wrap.dataset.loaded) return;
+
+  wrap.innerHTML = '<div class="p-4 text-xs text-muted-foreground">Loading search terms…</div>';
+  const body = {
+    team_id:     teamId,
+    profile_id:  profileId,
+    campaign_id: campaignId,
+    ...dateParams(),
+  };
+  try {
+    const jr = await fetch('/dashboard/search-terms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if (!jr.success) { wrap.innerHTML = '<div class="p-4 text-xs text-danger">Failed</div>'; return; }
+    await pollST(jr.job_id, wrap);
+  } catch { wrap.innerHTML = '<div class="p-4 text-xs text-danger">Network error</div>'; }
+}
+
+async function pollST(jobId, wrap) {
+  while (true) {
+    await new Promise(r=>setTimeout(r,1200));
+    try {
+      const s = await fetch(`/dashboard/search-terms/${jobId}`).then(r=>r.json());
+      if (s.state==='done') {
+        const d = await fetch(`/dashboard/search-terms/${jobId}/data`).then(r=>r.json());
+        wrap.dataset.loaded = '1';
+        renderInlineST(d.rows||[], wrap);
+        return;
+      }
+      if (s.state==='error') { wrap.innerHTML = '<div class="p-4 text-xs text-danger">'+(s.error||'Error')+'</div>'; return; }
+    } catch {}
+  }
+}
+
+function renderInlineST(rows, wrap) {
+  if (!rows.length) { wrap.innerHTML = '<div class="p-4 text-xs text-muted-foreground">No search terms found.</div>'; return; }
+  const trs = rows.map(r=>{
+    const acosC = acosClass(r.acos);
+    return `<tr>
+      <td title="${esc(r.search_term)}">${esc(r.search_term.length>50?r.search_term.slice(0,50)+'…':r.search_term)}</td>
+      <td class="num">${fmtN(r.impressions)}</td>
+      <td class="num">${fmtN(r.clicks)}</td>
+      <td class="num">${fmt$(r.spend)}</td>
+      <td class="num">${fmt$(r.sales)}</td>
+      <td class="num">${fmtN(r.orders)}</td>
+      <td class="num ${acosC} font-semibold">${fmtPct(r.acos)}</td>
+      <td class="num">${fmtPct2(r.ctr)}</td>
+      <td class="num">${fmt$(r.cpc)}</td>
+      <td class="num">${fmtPct2(r.cvr)}</td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `
+<div class="st-scroll-wrap">
+<table class="st-inner-table">
+<thead><tr>
+  <th style="text-align:left">Search Term</th>
+  <th>Impr.</th><th>Clicks</th><th>Spend</th><th>Sales</th>
+  <th>Orders</th><th>ACOS</th><th>CTR</th><th>CPC</th><th>CVR</th>
+</tr></thead>
+<tbody>${trs}</tbody>
+</table>
+</div>`;
+}
+
+/* ─── Keyword detail drawer ──────────────────────────────────────────────── */
+function openKwDrawer(kwId) {
+  const t = kwMap[kwId];
+  if (!t) { console.warn('kwMap miss:', kwId); return; }
+  currentKw = t;
+
+  // Header
+  const mcls = kwClass(t.match_type);
+  $('dKwPill').className = `kw-pill ${mcls}`;
+  $('dKwPill').textContent = t.match_type || '—';
+  $('dKwText').textContent = t.keyword || '—';
+  $('dCampName').textContent = t.campaign_name || '';
+  const stateOk = (t.state||'').toLowerCase().includes('enabled');
+  $('dState').textContent  = t.state || '';
+  $('dState').style.color  = stateOk ? 'hsl(142 71% 38%)' : 'hsl(38 92% 42%)';
+
+  // Metrics grid
+  const metrics = [
+    ['Impressions',     fmtN(t.impressions)],
+    ['Prev. Period Impr.',fmtN(t.impressions_prev)],
+    ['Imp. Share',      fmtPct(t.impression_share)],
+    ['Clicks',          fmtN(t.clicks)],
+    ['CTR',             fmtPct2(t.ctr)],
+    ['Spend',           fmt$(t.spend)],
+    ['Sales',           fmt$(t.sales)],
+    ['Orders',          fmtN(t.orders)],
+    ['ACOS',            fmtPct(t.acos)],
+    ['RPC',             fmt$(t.rpc)],
+    ['Current Bid',     '$'+(t.bid||0).toFixed(2)],
+  ];
+  $('dMetrics').innerHTML = metrics.map(([l,v])=>`
+<div class="metric-cell">
+  <div class="metric-label">${l}</div>
+  <div class="metric-val ${l==='ACOS'?acosClass(t.acos):''}">${v}</div>
+</div>`).join('');
+
+  // Impression chart
+  if (impressionChart) { impressionChart.destroy(); impressionChart = null; }
+  const ctx = $('impressionChart').getContext('2d');
+  impressionChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Current Period', 'Prior Period'],
+      datasets: [{
+        data:  [t.impressions||0, t.impressions_prev||0],
+        backgroundColor: ['hsl(221 83% 53%)', 'hsl(221 83% 80%)'],
+        borderRadius: 4,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' ' + fmtN(ctx.raw) + ' impressions' }
+      }},
+      scales: {
+        y: { beginAtZero: true, ticks: { font: { family: 'JetBrains Mono', size: 11 } } },
+        x: { ticks: { font: { size: 11 } } },
+      },
+    },
+  });
+
+  // Bid history
+  let bidHtml = '';
+  if (t.last_bid_date || t.last_bid_note) {
+    bidHtml = `<div class="text-xs">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="font-semibold">Last change:</span>
+        <span class="num text-muted-foreground">${esc(t.last_bid_date||'—')}</span>
+      </div>
+      ${t.last_bid_note ? `<div class="text-muted-foreground">${esc(t.last_bid_note)}</div>` : ''}
+    </div>`;
+  } else {
+    bidHtml = '<div class="text-xs text-muted-foreground">No bid history recorded yet. Changes made via the Bid Optimizer will appear here.</div>';
+  }
+  $('dBidHistory').innerHTML = bidHtml;
+
+  // Match type
+  $('dMatchTypes').innerHTML = `<span class="kw-pill ${mcls} text-sm">${esc(t.match_type||'—')}</span>`;
+
+  // Cross-campaign
+  const cc = t.cross_campaign_names||[];
+  if (cc.length) {
+    $('dCrossCampSection').classList.remove('hidden');
+    $('dCrossCamps').innerHTML = cc.map(n=>`
+<div class="flex items-center gap-2 mb-1.5 text-xs">
+  <span class="state-dot state-enabled"></span>
+  <span>${esc(n)}</span>
+</div>`).join('');
+  } else {
+    $('dCrossCampSection').classList.add('hidden');
+  }
+
+  // Search terms button
+  $('dStCampName').textContent = '— ' + (t.campaign_name||'');
+  $('dStWrap').innerHTML = `<div class="p-4 text-center">
+    <button onclick="loadDrawerST()" class="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
+      Load Search Terms
+    </button>
+  </div>`;
+
+  // Open drawer
+  $('drawerOverlay').classList.add('open');
+  $('drawerPanel').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDrawer() {
+  $('drawerOverlay').classList.remove('open');
+  $('drawerPanel').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Load search terms in keyword drawer
+async function loadDrawerST() {
+  if (!currentKw || !teamId || !profileId) return;
+  const wrap = $('dStWrap');
+  wrap.innerHTML = '<div class="p-4 text-xs text-muted-foreground">Loading…</div>';
+  const body = {
+    team_id:     teamId,
+    profile_id:  profileId,
+    campaign_id: currentKw.campaign_id,
+    ...dateParams(),
+  };
+  try {
+    const jr = await fetch('/dashboard/search-terms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if (!jr.success) { wrap.innerHTML = '<div class="p-4 text-xs text-danger">Failed</div>'; return; }
+    const container = document.createElement('div');
+    await pollST(jr.job_id, container);
+    wrap.innerHTML = '';
+    wrap.appendChild(container);
+    // Keep drawer scrolled to top so Metrics / Bid History stay visible
+    const drawerBody = document.querySelector('.drawer-panel.open .drawer-body');
+    if (drawerBody) drawerBody.scrollTop = 0;
+  } catch { wrap.innerHTML = '<div class="p-4 text-xs text-danger">Network error</div>'; }
+}
+
+/* ─── SQP ────────────────────────────────────────────────────────────────── */
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.add('hidden'));
+  $(`tab-${tab}`).classList.remove('hidden');
+}
+
+function setSqpView(view, btn) {
+  sqpView = view;
+  document.querySelectorAll('.sqp-view-btn').forEach(b=>{
+    b.classList.remove('bg-foreground','text-background');
+    b.classList.add('text-muted-foreground');
+  });
+  btn.classList.add('bg-foreground','text-background');
+  btn.classList.remove('text-muted-foreground');
+  $('sqpBrandView').classList.toggle('hidden', view==='asin');
+  $('sqpAsinView').classList.toggle('hidden',  view==='brand');
+}
+
+async function loadSQP() {
+  if (!teamId || !profileId) { toast('Load main data first','error'); return; }
+  $('sqpStatus').textContent = 'Loading…';
+  $('sqpLoadBtn').disabled = true;
+  try {
+    const body = { team_id: teamId, profile_id: profileId, ...dateParams() };
+    const jr = await fetch('/dashboard/sqp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if (!jr.success) { $('sqpStatus').textContent = 'Failed'; $('sqpLoadBtn').disabled=false; return; }
+    await pollSQP(jr.job_id);
+  } catch { $('sqpStatus').textContent='Error'; $('sqpLoadBtn').disabled=false; }
+}
+
+async function pollSQP(jobId) {
+  while (true) {
+    await new Promise(r=>setTimeout(r,1200));
+    try {
+      const s = await fetch(`/dashboard/sqp/${jobId}`).then(r=>r.json());
+      if (s.state==='done') {
+        const d = await fetch(`/dashboard/sqp/${jobId}/data`).then(r=>r.json());
+        sqpRows = d.rows||[];
+        renderSQP();
+        $('sqpStatus').textContent = `${sqpRows.length} queries`;
+        $('sqpLoadBtn').disabled = false;
+        return;
+      }
+      if (s.state==='error') { $('sqpStatus').textContent=s.error||'Error'; $('sqpLoadBtn').disabled=false; return; }
+    } catch {}
+  }
+}
+
+function renderSQP() {
+  // Brand table
+  $('sqpEmpty').classList.add('hidden');
+  $('sqpBrandTable').classList.remove('hidden');
+  const brandTrs = sqpRows.map(r=>`<tr>
+    <td title="${esc(r.search_query)}">${esc(r.search_query.length>45?r.search_query.slice(0,45)+'…':r.search_query)}</td>
+    <td class="num">${fmtN(r.volume)}</td>
+    <td>${esc(r.brand||'—')}</td>
+    <td class="num">${fmtN(r.purchases)}</td>
+    <td class="num">${fmtPct(r.purchase_share)}</td>
+    <td class="num">${fmtN(r.clicks)}</td>
+    <td class="num">${fmtPct(r.click_share)}</td>
+    <td class="num">${fmtN(r.impressions)}</td>
+    <td class="num">${fmtPct(r.impression_share)}</td>
+    <td class="num">${fmtPct2(r.conversion)}</td>
+    <td class="num">${fmtN(r.cart_adds)}</td>
+    <td><span class="text-xs font-semibold ${r.targeted?'text-success':'text-muted-foreground'}">${r.targeted?'Yes':'No'}</span></td>
+  </tr>`).join('');
+  $('sqpBrandBody').innerHTML = brandTrs||'<tr><td colspan="12" class="p-4 text-center text-muted-foreground">No SQP data</td></tr>';
+
+  // ASIN table
+  const asinTrs = sqpRows.map(r=>`<tr>
+    <td title="${esc(r.search_query)}">${esc(r.search_query.length>45?r.search_query.slice(0,45)+'…':r.search_query)}</td>
+    <td class="num">${fmtN(r.volume)}</td>
+    <td class="num font-mono text-xs">${esc(r.asin||'—')}</td>
+    <td title="${esc(r.title)}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc((r.title||'').slice(0,45))}</td>
+    <td class="num">${fmtN(r.purchases)}</td>
+    <td class="num">${fmtPct(r.purchase_share)}</td>
+    <td class="num">${fmtN(r.clicks)}</td>
+    <td class="num">${fmtPct(r.click_share)}</td>
+    <td class="num">${fmtN(r.impressions)}</td>
+    <td class="num">${fmtPct(r.impression_share)}</td>
+    <td class="num">${fmtPct2(r.conversion)}</td>
+    <td><span class="text-xs font-semibold ${r.targeted?'text-success':'text-muted-foreground'}">${r.targeted?'Yes':'No'}</span></td>
+  </tr>`).join('');
+  $('sqpAsinBody').innerHTML = asinTrs;
+}
+
+/* ─── AI Insights ────────────────────────────────────────────────────────── */
+// Convert an ACOS fraction (0.891) to a percentage NUMBER (89.1) so the AI
+// never has to interpret raw fractions — that was causing 89% to be shown as 8.9%.
+const acosPct = v => (v == null ? null : Math.round(v * 1000) / 10);
+
+function openAI() {
+  if (!dashData) return;
+  $('aiOverlay').classList.add('active');
+  const st = dashData.stats || {};
+  const summary = {
+    account: {
+      products:        st.products,
+      campaigns:       st.campaigns,
+      keywords:        st.keywords,
+      total_spend_usd: st.total_spend,
+      total_sales_usd: st.total_sales,
+      acos_percent:    acosPct(st.total_acos),   // e.g. 89.1 means 89.1%
+    },
+    top_products: (dashData.products||[]).slice(0,5).map(p=>({
+      asin: p.asin, title: p.title,
+      spend_usd: p.spend, ad_sales_usd: p.ad_sales,
+      acos_percent: acosPct(p.acos), avg_cost_per_order_usd: p.avg_coc,
+    })),
+    top_keywords: (dashData.products||[]).flatMap(p=>
+      Object.values(p.campaigns||{}).flat().flatMap(c=>(c.targets||[]))
+    ).sort((a,b)=>b.spend-a.spend).slice(0,20).map(t=>({
+      keyword: t.keyword, match: t.match_type, bid_usd: t.bid,
+      spend_usd: t.spend, sales_usd: t.sales,
+      acos_percent: acosPct(t.acos),
+      campaign: t.campaign_name, impressions: t.impressions, orders: t.orders,
+    })),
+  };
+  fetch('/dashboard/ai-insight', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ context: 'Amazon Advertising dashboard overview', data: summary }),
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if (!d.success || !d.job_id) { $('aiOverlay').classList.remove('active'); toast(d.error||'AI failed','error'); return; }
+    pollAI(d.job_id);
+  })
+  .catch(e=>{ $('aiOverlay').classList.remove('active'); toast('AI error','error'); });
+}
+
+// Minimal markdown → HTML for the AI insight (headings, bold, bullets, numbers).
+function renderMarkdown(md) {
+  if (!md) return '';
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inline = s => esc(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')          // **bold**
+    .replace(/(\$[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%)/g, '<span class="num">$1</span>') // money / %
+    .replace(/\b(Action|Recommendation):/g, '<span class="ai-action">$1:</span>');
+
+  const lines = md.replace(/\r/g,'').split('\n');
+  let html = '', inList = false;
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+
+  for (let raw of lines) {
+    let line = raw.trim();
+    if (!line) { closeList(); continue; }
+    // Headings: ## or ### or a **Bold:** line on its own
+    let h = line.match(/^#{2,4}\s+(.*)$/);
+    if (h) { closeList(); html += `<h3>${inline(h[1].replace(/[:#]+$/,''))}</h3>`; continue; }
+    // Bullets: -, *, or numbered "1."
+    let b = line.match(/^(?:[-*]|\d+\.)\s+(.*)$/);
+    if (b) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${inline(b[1])}</li>`;
+      continue;
+    }
+    closeList();
+    html += `<p>${inline(line)}</p>`;
+  }
+  closeList();
+  return html;
+}
+
+async function pollAI(jobId) {
+  // The model is slow (cold-start can be 30-60s+), so poll patiently.
+  for (let i=0; i<120; i++) {           // up to ~4 min
+    await new Promise(r=>setTimeout(r,2000));
+    try {
+      const s = await fetch(`/dashboard/ai-insight/${jobId}`).then(r=>r.json());
+      if (s.state==='done') {
+        const d = await fetch(`/dashboard/ai-insight/${jobId}/data`).then(r=>r.json());
+        $('aiOverlay').classList.remove('active');
+        if (!d.success) { toast(d.error||'AI failed','error'); return; }
+        $('aiResultText').innerHTML = renderMarkdown(d.insight);
+        const ov = $('aiResultOverlay'); const pn = $('aiResultPanel');
+        ov.style.opacity='0'; ov.style.pointerEvents='auto';
+        pn.style.transform='translateY(12px)';
+        requestAnimationFrame(()=>{ ov.style.opacity='1'; pn.style.transform='translateY(0)'; });
+        document.body.style.overflow='hidden';
+        return;
+      }
+      if (s.state==='error') { $('aiOverlay').classList.remove('active'); toast(s.error||'AI failed','error'); return; }
+    } catch {}
+  }
+  $('aiOverlay').classList.remove('active');
+  toast('AI timed out — please try again','error');
+}
+
+function closeAIResult() {
+  const ov = $('aiResultOverlay'); const pn = $('aiResultPanel');
+  ov.style.opacity='0'; pn.style.transform='translateY(12px)';
+  setTimeout(()=>{ ov.style.pointerEvents='none'; }, 220);
+  document.body.style.overflow='';
+}
+
+/* ─── Keyboard nav ───────────────────────────────────────────────────────── */
+document.addEventListener('keydown', e=>{
+  if (e.key==='Escape') { closeDrawer(); closeAIResult(); }
+});
+
+/* ─── Init ───────────────────────────────────────────────────────────────── */
+
+// Force-close all panels on every page show — handles normal refresh,
+// hard refresh, AND bfcache restores (where the browser snapshots the DOM
+// with panels still open from the previous session).
+window.addEventListener('pageshow', () => {
+  const panel   = $('drawerPanel');
+  const overlay = $('drawerOverlay');
+  if (panel)   panel.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+  const aiOv = $('aiResultOverlay');
+  if (aiOv) { aiOv.style.opacity = '0'; aiOv.style.pointerEvents = 'none'; }
+  document.body.style.overflow = '';
+});
+
+setPreset(30);
+loadProfiles();
+</script>
+{% endblock %}

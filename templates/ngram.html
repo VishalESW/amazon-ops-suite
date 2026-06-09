@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% set active = 'ngram' %}
+{% block title %}N-Gram Analyzer{% endblock %}
+{% block content %}
+
+<div class="flex flex-wrap items-start justify-between gap-4">
+  <div class="flex items-start gap-3">
+    <span class="grid h-11 w-11 place-items-center rounded-xl text-white shadow-sm" style="background:hsl(258 90% 60%)">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5M4 19h16M8 16l3-4 2 3 4-6"/></svg>
+    </span>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight">N-Gram Analyzer</h1>
+      <p class="mt-1 text-sm text-muted-foreground">Upload a search-term report and surface negative-keyword candidates from mono/bi/tri-grams.</p>
+    </div>
+  </div>
+  <div class="flex items-center gap-1 rounded-lg border border-border bg-card p-1 text-sm">
+    <button id="navAnalyze" onclick="showView('analyze')" class="rounded-md px-3 py-1.5 font-medium bg-accent text-accent-foreground">Analyze</button>
+    <button id="navArchive" onclick="showView('archive')" class="rounded-md px-3 py-1.5 font-medium text-muted-foreground hover:bg-accent">Archive</button>
+    <button id="navHelp" onclick="showView('help')" class="rounded-md px-3 py-1.5 font-medium text-muted-foreground hover:bg-accent">Help</button>
+  </div>
+</div>
+
+<!-- ANALYZE VIEW -->
+<div id="view-analyze">
+  <!-- Upload -->
+  <div id="uploadCard" class="mt-6 rounded-xl border border-border bg-card shadow-soft p-6">
+    <label id="dropZone" for="fileInput"
+      class="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-border px-6 py-12 text-center cursor-pointer transition hover:border-foreground/30 hover:bg-accent/30">
+      <span class="grid h-12 w-12 place-items-center rounded-full bg-secondary text-secondary-foreground">
+        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 5v12"/></svg>
+      </span>
+      <div>
+        <p class="font-semibold">Drop your report here, or <span style="color:hsl(258 90% 60%)">browse</span></p>
+        <p class="mt-1 text-xs text-muted-foreground">CSV or Excel (.csv, .xlsx, .xls) · up to 50 MB</p>
+      </div>
+      <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" class="hidden" onchange="onFile(this.files)">
+    </label>
+
+    <div id="fileRow" class="mt-4 hidden items-center gap-3 rounded-lg border border-border bg-background/50 px-4 py-3">
+      <span class="grid h-9 w-9 place-items-center rounded-lg text-white" style="background:hsl(258 90% 60%)">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      </span>
+      <div class="min-w-0 flex-1"><p id="fileName" class="truncate text-sm font-medium"></p><p id="fileSize" class="text-xs text-muted-foreground num"></p></div>
+      <button onclick="clearFile()" class="text-xs text-muted-foreground hover:text-danger">Remove</button>
+    </div>
+
+    <div class="mt-4 flex items-center gap-3">
+      <button id="processBtn" onclick="process()" disabled
+        class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition disabled:opacity-50">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 3l14 9-14 9V3z"/></svg>
+        Process report
+      </button>
+      <div id="progress" class="hidden items-center gap-2 text-sm">
+        <svg class="h-4 w-4 animate-spin" style="color:hsl(258 90% 60%)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>
+        <span id="progressMsg">Analyzing…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="resultsCard" class="mt-6 hidden">
+    <!-- downloads -->
+    <div class="rounded-xl border border-success/40 bg-success/10 p-5">
+      <div class="flex flex-wrap items-center gap-3">
+        <svg class="h-5 w-5 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>
+        <p class="font-semibold flex-1">Analysis complete</p>
+        <a id="dlNgram" class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg> N-Gram report
+        </a>
+        <a id="dlAsin" class="hidden inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold hover:bg-accent transition">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg> ASIN report
+        </a>
+        <button id="saveBtn" onclick="saveArchive()" class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-semibold hover:bg-accent transition">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg> Save to archive
+        </button>
+      </div>
+    </div>
+
+    <!-- stat cards -->
+    <div id="statGrid" class="mt-3 grid gap-3 grid-cols-2 lg:grid-cols-4"></div>
+
+    <!-- campaign breakdown -->
+    <div class="mt-3 rounded-xl border border-border bg-card shadow-soft overflow-hidden">
+      <div class="border-b border-border px-5 py-3.5"><h2 class="font-semibold">Campaign breakdown</h2></div>
+      <div class="max-h-[52vh] overflow-auto"><table class="w-full text-sm">
+        <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
+          <th class="px-3 py-2.5">Campaign</th><th class="px-3 py-2.5 text-right">Spend</th><th class="px-3 py-2.5 text-right">Sales</th>
+          <th class="px-3 py-2.5 text-right">Orders</th><th class="px-3 py-2.5 text-right">ACOS</th>
+          <th class="px-3 py-2.5 text-right">Mono</th><th class="px-3 py-2.5 text-right">Bi</th><th class="px-3 py-2.5 text-right">Tri</th><th class="px-3 py-2.5 text-right">Terms</th>
+        </tr></thead><tbody id="campBody" class="divide-y divide-border"></tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<!-- ARCHIVE VIEW -->
+<div id="view-archive" class="hidden mt-6">
+  <div class="rounded-xl border border-border bg-card shadow-soft">
+    <div class="border-b border-border px-5 py-3.5 flex items-center justify-between">
+      <h2 class="font-semibold">Archived reports</h2>
+      <button onclick="loadArchive()" class="text-xs text-muted-foreground hover:text-foreground underline">Refresh</button>
+    </div>
+    <div id="archiveList" class="divide-y divide-border"></div>
+  </div>
+</div>
+
+<!-- HELP VIEW -->
+<div id="view-help" class="hidden mt-6 space-y-3">
+  {% for q, a in [
+    ('What does this tool do?','It extracts 1-, 2- and 3-word combinations (n-grams) from your Amazon search-term report, aggregates spend/clicks/sales per n-gram, and flags candidates to negate so you stop wasting ad spend.'),
+    ('What file should I upload?','A Sponsored Products search-term report exported from Amazon (CSV or Excel). It needs at least: search term, impressions, clicks and spend columns — common Amazon header names are auto-detected.'),
+    ('What are NE and NP?','NE = Negative Exact (clicks with no orders). NP = Negative Phrase (spend with no sales). The N-Gram report includes reference columns so you can mark keywords to negate.'),
+    ('What is the ASIN report?','Search terms that are ASINs (B0…) are split out into a separate product-targeting report.')
+  ] %}
+  <div class="rounded-xl border border-border bg-card p-5 shadow-soft">
+    <p class="font-semibold">{{ q }}</p>
+    <p class="mt-1.5 text-sm text-muted-foreground">{{ a }}</p>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+let selectedFile=null, lastResult=null;
+
+function showView(v){
+  ['analyze','archive','help'].forEach(x=>{
+    document.getElementById('view-'+x).classList.toggle('hidden', x!==v);
+    const b=document.getElementById('nav'+x.charAt(0).toUpperCase()+x.slice(1));
+    b.className='rounded-md px-3 py-1.5 font-medium '+(x===v?'bg-accent text-accent-foreground':'text-muted-foreground hover:bg-accent');
+  });
+  if(v==='archive') loadArchive();
+}
+
+// drag & drop
+const dz=document.getElementById('dropZone');
+['dragenter','dragover'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('border-foreground/40','bg-accent/40');}));
+['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('border-foreground/40','bg-accent/40');}));
+dz.addEventListener('drop',ev=>onFile(ev.dataTransfer.files));
+
+function onFile(files){
+  const f=files&&files[0]; if(!f) return;
+  const ok=/\.(csv|xlsx|xls)$/i.test(f.name);
+  if(!ok){ toast('Please upload a .csv, .xlsx or .xls file','error'); return; }
+  selectedFile=f;
+  document.getElementById('fileName').textContent=f.name;
+  document.getElementById('fileSize').textContent=(f.size/1024).toFixed(0)+' KB';
+  document.getElementById('fileRow').classList.remove('hidden'); document.getElementById('fileRow').classList.add('flex');
+  document.getElementById('processBtn').disabled=false;
+}
+function clearFile(){ selectedFile=null; document.getElementById('fileInput').value=''; document.getElementById('fileRow').classList.add('hidden'); document.getElementById('processBtn').disabled=true; }
+
+async function process(){
+  if(!selectedFile) return;
+  document.getElementById('processBtn').disabled=true;
+  const p=document.getElementById('progress'); p.classList.remove('hidden'); p.classList.add('flex');
+  document.getElementById('resultsCard').classList.add('hidden');
+  const fd=new FormData(); fd.append('file', selectedFile);
+  let res;
+  try{ res=await fetch('/upload',{method:'POST',body:fd}).then(r=>r.json()); }
+  catch(e){ return fail('Network error'); }
+  p.classList.add('hidden'); document.getElementById('processBtn').disabled=false;
+  if(!res.success){ return fail(res.error||'Processing failed'); }
+  lastResult=res; renderResults(res); toast('Analysis complete','success');
+}
+function fail(m){ document.getElementById('progress').classList.add('hidden'); document.getElementById('processBtn').disabled=false; toast(m,'error'); }
+
+function statCard(label,val){ return `<div class="rounded-xl border border-border bg-card p-4 shadow-soft"><div class="text-xs text-muted-foreground">${label}</div><div class="num text-2xl font-bold mt-1">${val}</div></div>`; }
+
+function renderResults(res){
+  const s=res.summary||{};
+  document.getElementById('statGrid').innerHTML =
+    statCard('Search terms',(s.total_search_terms||0).toLocaleString())+
+    statCard('Campaigns',s.campaigns_processed||0)+
+    statCard('ASINs split out',s.asins_removed||0)+
+    statCard('Total spend','$'+(s.total_spend||0).toLocaleString(undefined,{maximumFractionDigits:0}))+
+    statCard('Total sales','$'+(s.total_sales||0).toLocaleString(undefined,{maximumFractionDigits:0}))+
+    statCard('Total orders',s.total_orders||0)+
+    statCard('ACOS', s.total_sales? (s.total_spend/s.total_sales*100).toFixed(0)+'%':'—')+
+    statCard('Rows analyzed',(s.original_rows||0).toLocaleString());
+  document.getElementById('dlNgram').href='/download/'+res.output_file;
+  const a=document.getElementById('dlAsin');
+  if(res.asin_file){ a.href='/download/'+res.asin_file; a.classList.remove('hidden'); } else a.classList.add('hidden');
+
+  const cd=res.campaign_details||{}; const tb=document.getElementById('campBody'); tb.innerHTML='';
+  Object.entries(cd).sort((x,y)=>(y[1].spend||0)-(x[1].spend||0)).forEach(([name,d])=>{
+    const acos=d.sales? (d.spend/d.sales*100).toFixed(0)+'%':'—';
+    tb.innerHTML+=`<tr class="hover:bg-accent/40"><td class="px-3 py-2 max-w-[260px] truncate" title="${esc(name)}">${esc(name)}</td>
+      <td class="px-3 py-2 text-right num">$${(d.spend||0).toFixed(2)}</td><td class="px-3 py-2 text-right num">$${(d.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${d.orders||0}</td><td class="px-3 py-2 text-right num">${acos}</td>
+      <td class="px-3 py-2 text-right num text-muted-foreground">${d.monograms||0}</td><td class="px-3 py-2 text-right num text-muted-foreground">${d.bigrams||0}</td>
+      <td class="px-3 py-2 text-right num text-muted-foreground">${d.trigrams||0}</td><td class="px-3 py-2 text-right num text-muted-foreground">${d.search_terms||0}</td></tr>`;
+  });
+  document.getElementById('resultsCard').classList.remove('hidden');
+}
+
+async function saveArchive(){
+  if(!lastResult) return;
+  const btn=document.getElementById('saveBtn'); btn.disabled=true;
+  try{
+    const res=await fetch('/archive',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({filename:lastResult.output_file, originalFilename:(selectedFile&&selectedFile.name)||'report', summary:lastResult.summary, processedAt:new Date().toISOString()})}).then(r=>r.json());
+    toast(res.success?'Saved to archive':'Save failed', res.success?'success':'error');
+  } finally { btn.disabled=false; }
+}
+
+async function loadArchive(){
+  const list=document.getElementById('archiveList'); list.innerHTML='<div class="px-5 py-8 text-center text-sm text-muted-foreground">Loading…</div>';
+  try{
+    const res=await fetch('/archive').then(r=>r.json()); const items=res.archives||[];
+    if(!items.length){ list.innerHTML='<div class="px-5 py-12 text-center text-sm text-muted-foreground">No archived reports yet.</div>'; return; }
+    list.innerHTML='';
+    items.forEach(it=>{ const s=it.summary||{}; const dt=it.processedAt? new Date(it.processedAt).toLocaleString():'';
+      const div=document.createElement('div'); div.className='flex items-center gap-3 px-5 py-3.5 hover:bg-accent/40';
+      div.innerHTML=`<span class="grid h-9 w-9 place-items-center rounded-lg text-white" style="background:hsl(258 90% 60%)"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+        <div class="min-w-0 flex-1"><p class="truncate text-sm font-medium">${esc(it.originalFilename||it.filename)}</p>
+          <p class="text-xs text-muted-foreground num">${dt} · ${(s.campaigns_processed||0)} campaigns · ${(s.total_search_terms||0).toLocaleString()} terms</p></div>
+        <a href="/download/${esc(it.filename)}" class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-accent">Download</a>
+        <button onclick="delArchive('${it.id}')" class="rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:text-danger hover:border-danger/50">Delete</button>`;
+      list.appendChild(div); });
+  }catch(e){ list.innerHTML='<div class="px-5 py-8 text-center text-sm text-danger">Failed to load archive.</div>'; }
+}
+async function delArchive(id){ if(!confirm('Delete this archived report?')) return; await fetch('/archive/'+id,{method:'DELETE'}); loadArchive(); }
+
+function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+</script>
+{% endblock %}

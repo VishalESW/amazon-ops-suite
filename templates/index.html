@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>N-gram Automation | eSeller World</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="https://esellerworld.nfgprojects.in/logo.svg" alt="eSeller World" class="logo-img">
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section">
+                    <span class="nav-section-title">Main Menu</span>
+                    <a href="#" class="nav-item active" data-section="dashboard">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="3" width="7" height="7"></rect>
+                            <rect x="14" y="14" width="7" height="7"></rect>
+                            <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="analytics">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="20" x2="18" y2="10"></line>
+                            <line x1="12" y1="20" x2="12" y2="4"></line>
+                            <line x1="6" y1="20" x2="6" y2="14"></line>
+                        </svg>
+                        <span>Analytics</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="archive">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 8v13H3V8"></path>
+                            <path d="M1 3h22v5H1z"></path>
+                            <path d="M10 12h4"></path>
+                        </svg>
+                        <span>Archive</span>
+                    </a>
+                    <a href="#" class="nav-item" data-section="documentation">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <span>Documentation</span>
+                    </a>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="cta-card">
+                    <div class="cta-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                    </div>
+                    <span class="cta-title">Need Help?</span>
+                    <span class="cta-subtitle">View Documentation</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="content-header">
+                <div class="breadcrumb">
+                    <span>N-gram Tool</span>
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="breadcrumb-current" id="breadcrumb-current">Dashboard</span>
+                </div>
+                <div class="header-actions">
+                    <div class="search-box">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" placeholder="Search...">
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard Section -->
+            <div class="dashboard-content section-content" id="section-dashboard">
+                <!-- Title Section -->
+                <div class="page-title-section">
+                    <div>
+                        <h1 class="page-title">N-gram Analysis</h1>
+                        <p class="page-subtitle">Automate keyword optimization for Amazon PPC campaigns</p>
+                    </div>
+                </div>
+
+                <!-- Upload Section -->
+                <section class="upload-section" id="upload-section">
+                    <div class="upload-card">
+                        <div class="upload-box" id="upload-box">
+                            <div class="upload-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                    <polyline points="17 8 12 3 7 8"></polyline>
+                                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                            </div>
+                            <h3>Upload Search Term Report</h3>
+                            <p>Drag and drop your CSV or Excel file here, or click to browse</p>
+                            <input type="file" id="file-input" accept=".csv,.xlsx,.xls" hidden>
+                            <button class="btn btn-primary" id="browse-btn">Browse Files</button>
+                        </div>
+                        <p class="file-info" id="file-info"></p>
+                    </div>
+                </section>
+
+                <!-- Process Section -->
+                <section class="process-section" id="process-section" style="display: none;">
+                    <button class="btn btn-success btn-lg" id="process-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        Process File
+                    </button>
+                </section>
+
+                <!-- Progress Section -->
+                <section class="progress-section" id="progress-section" style="display: none;">
+                    <div class="progress-card">
+                        <div class="spinner"></div>
+                        <h3>Processing your file...</h3>
+                        <p id="progress-text">Parsing CSV data...</p>
+                    </div>
+                </section>
+
+                <!-- Results Section -->
+                <section class="results-section" id="results-section" style="display: none;">
+                    <div class="results-header">
+                        <h2>Processing Complete!</h2>
+                    </div>
+
+                    <!-- Stats Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-info">
+                                <span class="stat-label">Total Rows</span>
+                                <span class="stat-value" id="total-rows">0</span>
+                            </div>
+                            <div class="stat-chart green">
+                                <svg viewBox="0 0 100 40">
+                                    <polyline fill="none" stroke="currentColor" stroke-width="2" points="0,35 20,30 40,32 60,20 80,25 100,10"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-info">
+                                <span class="stat-label">ASINs Removed</span>
+                                <span class="stat-value" id="asins-removed">0</span>
+                            </div>
+                            <div class="stat-chart orange">
+                                <svg viewBox="0 0 100 40">
+                                    <polyline fill="none" stroke="currentColor" stroke-width="2" points="0,10 20,15 40,12 60,25 80,20 100,30"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-info">
+                                <span class="stat-label">Campaigns</span>
+                                <span class="stat-value" id="campaigns-count">0</span>
+                            </div>
+                            <div class="stat-chart blue">
+                                <svg viewBox="0 0 100 40">
+                                    <polyline fill="none" stroke="currentColor" stroke-width="2" points="0,30 20,25 40,28 60,15 80,20 100,8"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Summary -->
+                    <div class="metrics-row">
+                        <div class="metric-card">
+                            <span class="metric-label">Total Spend</span>
+                            <span class="metric-value green" id="total-spend">$0.00</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Total Sales</span>
+                            <span class="metric-value green" id="total-sales">$0.00</span>
+                        </div>
+                    </div>
+
+                    <!-- Campaigns List -->
+                    <div class="campaigns-section">
+                        <div class="section-header">
+                            <h3>Campaigns Processed</h3>
+                        </div>
+                        <div class="campaigns-list">
+                            <ul id="campaign-names"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Download Section -->
+                    <div class="download-section">
+                        <button class="btn btn-download" id="download-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Download N-gram Report
+                        </button>
+                        <button class="btn btn-asin-download" id="download-asin-btn" style="display: none;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Download ASIN Report
+                        </button>
+                        <button class="btn btn-archive" id="archive-btn">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 8v13H3V8"></path>
+                                <path d="M1 3h22v5H1z"></path>
+                                <path d="M10 12h4"></path>
+                            </svg>
+                            Archive Report
+                        </button>
+                        <button class="btn btn-secondary" id="reset-btn">Process Another File</button>
+                    </div>
+                </section>
+
+                <!-- Error Section -->
+                <section class="error-section" id="error-section" style="display: none;">
+                    <div class="error-card">
+                        <div class="error-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="15" y1="9" x2="9" y2="15"></line>
+                                <line x1="9" y1="9" x2="15" y2="15"></line>
+                            </svg>
+                        </div>
+                        <h3>Error Processing File</h3>
+                        <p id="error-message"></p>
+                        <button class="btn btn-primary" id="retry-btn">Try Again</button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Analytics Section -->
+            <div class="dashboard-content section-content" id="section-analytics" style="display: none;">
+                <div class="page-title-section">
+                    <div>
+                        <h1 class="page-title">Analytics</h1>
+                        <p class="page-subtitle">Detailed insights from your uploaded search term report</p>
+                    </div>
+                </div>
+
+                <!-- Analytics Empty State -->
+                <div class="analytics-empty" id="analytics-empty">
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <line x1="18" y1="20" x2="18" y2="10"></line>
+                            <line x1="12" y1="20" x2="12" y2="4"></line>
+                            <line x1="6" y1="20" x2="6" y2="14"></line>
+                        </svg>
+                        <h3>No Data Available</h3>
+                        <p>Upload and process a CSV or Excel file from the Dashboard to see analytics.</p>
+                        <button class="btn btn-primary" onclick="navigateToSection('dashboard')">Go to Dashboard</button>
+                    </div>
+                </div>
+
+                <!-- Analytics Content -->
+                <div class="analytics-content" id="analytics-content" style="display: none;">
+                    <!-- Overview Stats -->
+                    <div class="analytics-overview">
+                        <h3 class="section-title">Overview</h3>
+                        <div class="stats-grid stats-grid-4">
+                            <div class="stat-card">
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Campaigns</span>
+                                    <span class="stat-value" id="analytics-campaigns">0</span>
+                                </div>
+                                <div class="stat-icon blue">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Monograms</span>
+                                    <span class="stat-value" id="analytics-monograms">0</span>
+                                </div>
+                                <div class="stat-icon green">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <line x1="12" y1="8" x2="12" y2="16"></line>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Bigrams</span>
+                                    <span class="stat-value" id="analytics-bigrams">0</span>
+                                </div>
+                                <div class="stat-icon purple">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <line x1="8" y1="12" x2="16" y2="12"></line>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-info">
+                                    <span class="stat-label">Total Trigrams</span>
+                                    <span class="stat-value" id="analytics-trigrams">0</span>
+                                </div>
+                                <div class="stat-icon orange">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"></circle>
+                                        <line x1="8" y1="12" x2="16" y2="12"></line>
+                                        <line x1="12" y1="8" x2="12" y2="16"></line>
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Spend & Sales Analysis -->
+                    <div class="analytics-financial">
+                        <h3 class="section-title">Financial Summary</h3>
+                        <div class="metrics-row">
+                            <div class="metric-card large">
+                                <span class="metric-label">Total Spend</span>
+                                <span class="metric-value red" id="analytics-spend">$0.00</span>
+                                <span class="metric-subtext">Across all campaigns</span>
+                            </div>
+                            <div class="metric-card large">
+                                <span class="metric-label">Total Sales</span>
+                                <span class="metric-value green" id="analytics-sales">$0.00</span>
+                                <span class="metric-subtext">Revenue generated</span>
+                            </div>
+                            <div class="metric-card large">
+                                <span class="metric-label">Overall ACOS</span>
+                                <span class="metric-value blue" id="analytics-acos">0%</span>
+                                <span class="metric-subtext">Advertising Cost of Sales</span>
+                            </div>
+                            <div class="metric-card large">
+                                <span class="metric-label">Total Orders</span>
+                                <span class="metric-value purple" id="analytics-orders">0</span>
+                                <span class="metric-subtext">Conversions</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Campaign Breakdown -->
+                    <div class="analytics-campaigns">
+                        <h3 class="section-title">Campaign Breakdown</h3>
+                        <div class="table-container">
+                            <table class="analytics-table" id="campaign-breakdown-table">
+                                <thead>
+                                    <tr>
+                                        <th>Campaign Name</th>
+                                        <th>Monograms</th>
+                                        <th>Bigrams</th>
+                                        <th>Trigrams</th>
+                                        <th>Search Terms</th>
+                                        <th>Spend</th>
+                                        <th>Sales</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="campaign-breakdown-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- N-gram Distribution -->
+                    <div class="analytics-distribution">
+                        <h3 class="section-title">N-gram Distribution by Campaign</h3>
+                        <div class="distribution-grid" id="distribution-grid">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Archive Section -->
+            <div class="dashboard-content section-content" id="section-archive" style="display: none;">
+                <div class="page-title-section">
+                    <div>
+                        <h1 class="page-title">Archive</h1>
+                        <p class="page-subtitle">View and manage your archived N-gram analysis reports</p>
+                    </div>
+                </div>
+
+                <!-- Archive Empty State -->
+                <div class="archive-empty" id="archive-empty">
+                    <div class="empty-state">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 8v13H3V8"></path>
+                            <path d="M1 3h22v5H1z"></path>
+                            <path d="M10 12h4"></path>
+                        </svg>
+                        <h3>No Archived Reports</h3>
+                        <p>Process a file and click "Archive Report" to save it here.</p>
+                        <button class="btn btn-primary" onclick="navigateToSection('dashboard')">Go to Dashboard</button>
+                    </div>
+                </div>
+
+                <!-- Archive Content -->
+                <div class="archive-content" id="archive-content" style="display: none;">
+                    <div class="archive-list" id="archive-list">
+                        <!-- Archived items will be populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Documentation Section -->
+            <div class="dashboard-content section-content" id="section-documentation" style="display: none;">
+                <div class="page-title-section">
+                    <div>
+                        <h1 class="page-title">Documentation</h1>
+                        <p class="page-subtitle">Complete guide to using the N-gram Automation Tool</p>
+                    </div>
+                </div>
+
+                <div class="documentation-content">
+                    <!-- Introduction -->
+                    <div class="doc-section">
+                        <h2>What is the N-gram Automation Tool?</h2>
+                        <p>The N-gram Automation Tool is a powerful web application designed specifically for Amazon PPC advertisers to analyze and optimize their search term reports. It automatically extracts N-grams (word combinations) from your search terms and helps you identify keywords that should be negated to improve campaign performance and reduce wasted ad spend.</p>
+                    </div>
+
+                    <!-- What are N-grams -->
+                    <div class="doc-section">
+                        <h2>Understanding N-grams</h2>
+                        <p>N-grams are contiguous sequences of words extracted from your search terms. This tool generates three types of N-grams:</p>
+                        
+                        <div class="doc-card-grid">
+                            <div class="doc-card">
+                                <div class="doc-card-header green">
+                                    <h3>Monograms (1-word)</h3>
+                                </div>
+                                <div class="doc-card-body">
+                                    <p>Single words extracted from search terms.</p>
+                                    <p><strong>Example:</strong> From "wireless bluetooth headphones"</p>
+                                    <ul>
+                                        <li>wireless</li>
+                                        <li>bluetooth</li>
+                                        <li>headphones</li>
+                                    </ul>
+                                    <p class="doc-tip">Useful for identifying broad irrelevant terms like competitor brand names or completely unrelated products.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-card">
+                                <div class="doc-card-header purple">
+                                    <h3>Bigrams (2-word)</h3>
+                                </div>
+                                <div class="doc-card-body">
+                                    <p>Two consecutive words from search terms.</p>
+                                    <p><strong>Example:</strong> From "wireless bluetooth headphones"</p>
+                                    <ul>
+                                        <li>wireless bluetooth</li>
+                                        <li>bluetooth headphones</li>
+                                    </ul>
+                                    <p class="doc-tip">Ideal for finding phrase patterns that indicate poor intent or low-converting combinations.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-card">
+                                <div class="doc-card-header orange">
+                                    <h3>Trigrams (3-word)</h3>
+                                </div>
+                                <div class="doc-card-body">
+                                    <p>Three consecutive words from search terms.</p>
+                                    <p><strong>Example:</strong> From "best wireless bluetooth headphones"</p>
+                                    <ul>
+                                        <li>best wireless bluetooth</li>
+                                        <li>wireless bluetooth headphones</li>
+                                    </ul>
+                                    <p class="doc-tip">Perfect for identifying specific long-tail phrases that consistently underperform.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- How to Use -->
+                    <div class="doc-section">
+                        <h2>How to Use This Tool</h2>
+                        
+                        <div class="doc-steps">
+                            <div class="doc-step">
+                                <div class="step-number">1</div>
+                                <div class="step-content">
+                                    <h4>Export Your Search Term Report</h4>
+                                    <p>In Amazon Seller Central or your advertising console, navigate to <strong>Reports > Advertising Reports > Search Term Report</strong>. Download the report as a CSV file. Make sure to select an appropriate date range (typically 30-60 days for meaningful data).</p>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-step">
+                                <div class="step-number">2</div>
+                                <div class="step-content">
+                                    <h4>Upload Your File</h4>
+                                    <p>On the Dashboard, drag and drop your CSV or Excel file onto the upload area, or click "Browse Files" to select it. The tool accepts standard Amazon search term report format with columns for Campaign Name, Search Term, Impressions, Clicks, Spend, Orders, and Sales.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-step">
+                                <div class="step-number">3</div>
+                                <div class="step-content">
+                                    <h4>Process the File</h4>
+                                    <p>Click the "Process File" button. The tool will automatically:</p>
+                                    <ul>
+                                        <li>Filter out ASIN entries (product targeting, not keyword targeting)</li>
+                                        <li>Group data by campaign name</li>
+                                        <li>Extract all monograms, bigrams, and trigrams</li>
+                                        <li>Calculate aggregated metrics (CTR, CVR, CPC, ACOS) for each N-gram</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-step">
+                                <div class="step-number">4</div>
+                                <div class="step-content">
+                                    <h4>Download & Analyze the Excel Report</h4>
+                                    <p>Download the generated Excel file. Each campaign gets its own sheet with organized sections for Monograms, Bigrams, Trigrams, and Search Terms. Review the metrics to identify poor performers.</p>
+                                </div>
+                            </div>
+                            
+                            <div class="doc-step">
+                                <div class="step-number">5</div>
+                                <div class="step-content">
+                                    <h4>Add Keywords to Reference Columns</h4>
+                                    <p>In the Excel file, you'll find three reference columns at the end: <strong>Monogram</strong>, <strong>Bigram</strong>, and <strong>Trigram</strong>. Add the N-grams you want to negate to these columns. The NE/NP column will automatically show "NP" (Negative Phrase) for any matching N-grams in the data.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Excel Structure -->
+                    <div class="doc-section">
+                        <h2>Understanding the Excel Output</h2>
+                        <p>The generated Excel file contains the following structure:</p>
+                        
+                        <div class="doc-table-container">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Sheet</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Summary</strong></td>
+                                        <td>Overview with hyperlinks to all campaign sheets for easy navigation.</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>[Campaign Name]</strong></td>
+                                        <td>Individual sheet per campaign with Monogram, Bigram, Trigram, and Search Term sections arranged horizontally.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h3>Metrics Explained</h3>
+                        <div class="doc-table-container">
+                            <table class="doc-table">
+                                <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Description</th>
+                                        <th>Formula</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>CTR</strong></td>
+                                        <td>Click-Through Rate - percentage of impressions that resulted in clicks</td>
+                                        <td>(Clicks / Impressions) x 100</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>CVR</strong></td>
+                                        <td>Conversion Rate - percentage of clicks that resulted in orders</td>
+                                        <td>(Orders / Clicks) x 100</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>CPC</strong></td>
+                                        <td>Cost Per Click - average amount paid for each click</td>
+                                        <td>Spend / Clicks</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>ACOS</strong></td>
+                                        <td>Advertising Cost of Sales - percentage of sales spent on advertising</td>
+                                        <td>(Spend / Sales) x 100</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Identifying Poor Performers -->
+                    <div class="doc-section">
+                        <h2>Identifying Keywords to Negate</h2>
+                        <p>Look for N-grams with these characteristics:</p>
+                        
+                        <div class="doc-warning-grid">
+                            <div class="doc-warning-card red">
+                                <h4>High Spend, Zero Sales</h4>
+                                <p>N-grams with significant spend but no conversions. These are clear candidates for negation.</p>
+                            </div>
+                            <div class="doc-warning-card orange">
+                                <h4>High ACOS (>100%)</h4>
+                                <p>Keywords where you're spending more on ads than you're making in sales. Typically unsustainable.</p>
+                            </div>
+                            <div class="doc-warning-card yellow">
+                                <h4>Low CTR (<0.2%)</h4>
+                                <p>Search terms that rarely get clicked may indicate poor relevance to your product.</p>
+                            </div>
+                            <div class="doc-warning-card blue">
+                                <h4>Low CVR with High Clicks</h4>
+                                <p>Getting clicks but no conversions suggests the search intent doesn't match your product.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Best Practices -->
+                    <div class="doc-section">
+                        <h2>Best Practices</h2>
+                        <ul class="doc-list">
+                            <li><strong>Regular Analysis:</strong> Run this analysis weekly or bi-weekly to continuously optimize your campaigns.</li>
+                            <li><strong>Start with High Spend:</strong> Focus first on N-grams with the highest spend and no/low sales.</li>
+                            <li><strong>Consider Context:</strong> Before negating, consider if an N-gram might be valuable in certain contexts. Use phrase negatives instead of exact when appropriate.</li>
+                            <li><strong>Archive Reports:</strong> Use the Archive feature to track your analysis history and compare performance over time.</li>
+                            <li><strong>Test Incrementally:</strong> Don't negate too many keywords at once. Make changes incrementally and monitor results.</li>
+                            <li><strong>Review Trigrams First:</strong> Trigrams are more specific and safer to negate as they won't block as many search terms as monograms.</li>
+                        </ul>
+                    </div>
+
+                    <!-- FAQ -->
+                    <div class="doc-section">
+                        <h2>Frequently Asked Questions</h2>
+                        
+                        <div class="doc-faq">
+                            <div class="faq-item">
+                                <h4>Why are ASINs filtered out?</h4>
+                                <p>ASINs (starting with "B0") represent product targeting, not keyword targeting. They require different analysis and negation strategies, so they're excluded from N-gram analysis which focuses on search term keywords.</p>
+                            </div>
+                            <div class="faq-item">
+                                <h4>What's the difference between NE and NP?</h4>
+                                <p>NE = Negative Exact (blocks only the exact search term), NP = Negative Phrase (blocks any search containing that phrase). This tool uses NP to mark keywords for phrase-level negation.</p>
+                            </div>
+                            <div class="faq-item">
+                                <h4>How do the reference columns work?</h4>
+                                <p>Add keywords you want to negate to the Monogram, Bigram, or Trigram reference columns. Excel formulas automatically check each N-gram against its corresponding reference column and display "NP" if there's a match.</p>
+                            </div>
+                            <div class="faq-item">
+                                <h4>Can I process multiple files?</h4>
+                                <p>Currently, the tool processes one file at a time. For multiple date ranges, combine your CSV files before uploading, or process them separately and compare using the Archive feature.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

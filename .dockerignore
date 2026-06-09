@@ -1,0 +1,25 @@
+# Python caches / envs
+__pycache__/
+*.py[cod]
+venv/
+env/
+.venv/
+
+# Secrets — env is injected by Dokploy, not baked into the image
+.env
+
+# Local runtime data — created fresh in container / persisted via volume
+*.db
+data/
+uploads/
+outputs/
+archive/
+
+# Logs and dev junk
+*.log
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
