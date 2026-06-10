@@ -31,15 +31,29 @@ def sort_product_list(rows):
 
 
 def _is_fba(fba_row, listing_row):
-    if fba_row and str(fba_row.get("afn-listing-exists", "")).strip().lower() in {"yes", "true", "1"}:
+    """True only for Amazon-fulfilled (FBA) SKUs.
+
+    The All Listings report's `fulfillment-channel` is authoritative:
+      - AMAZON_* / AFN  -> FBA
+      - DEFAULT / MFN / merchant -> FBM (excluded)
+    A merchant channel is decisive even if the SKU also appears in the FBA
+    inventory report (sellers often list an "-FBM" duplicate of an FBA ASIN).
+    Only when there is no listing channel do we fall back to FBA-report signals.
+    """
+    chan = ((listing_row or {}).get("fulfillment-channel") or "").strip().upper()
+    if chan:
+        if "AMAZON" in chan or chan.startswith("AFN"):
+            return True
+        return False   # DEFAULT / MERCHANT / MFN / anything explicit = FBM
+
+    # No listing channel — rely on the FBA report.
+    if str((fba_row or {}).get("afn-listing-exists", "")).strip().lower() in {"yes", "true", "1"}:
         return True
-    chan = (listing_row or {}).get("fulfillment-channel", "") or ""
-    if "AMAZON" in chan.upper() or chan.upper().startswith("AFN"):
-        return True
-    # FBA inventory presence implies FBA.
-    if fba_row and (fba_row.get("afn-fulfillable-quantity") not in (None, "", "0") or fba_row.get("asin")):
-        return True
-    return False
+    try:
+        qty = float(str((fba_row or {}).get("afn-fulfillable-quantity", 0)).replace(",", "") or 0)
+    except (TypeError, ValueError):
+        qty = 0.0
+    return qty > 0
 
 
 def build_product_list(reports, overrides=None):
