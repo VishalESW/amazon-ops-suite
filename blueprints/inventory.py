@@ -169,9 +169,10 @@ def fetch(account_id):
                                  increase_factor=increase_factor)
 
         # Stats for the dashboard.
-        band_counts = {"BAND A": 0, "BAND B": 0, "BAND C": 0, "EOL": 0}
+        band_counts = {"BAND A": 0, "BAND B": 0, "BAND C": 0}
         for p in product_list:
-            band_counts[p.get("band", "EOL")] = band_counts.get(p.get("band", "EOL"), 0) + 1
+            b = p.get("band") or "BAND C"
+            band_counts[b] = band_counts.get(b, 0) + 1
         stats = {
             "products": len(product_list),
             "bands": band_counts,

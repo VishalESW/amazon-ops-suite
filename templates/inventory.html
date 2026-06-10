@@ -248,7 +248,7 @@ function renderStats(st){
   const bands = st.bands||{}; const total = st.products||1;
   const bar = document.getElementById('bandBar'); bar.innerHTML='';
   const chips = document.getElementById('bandChips'); chips.innerHTML='';
-  ['BAND A','BAND B','BAND C','EOL'].forEach(b=>{
+  ['BAND A','BAND B','BAND C'].forEach(b=>{
     const n = bands[b]||0; if(!n) return;
     const seg=document.createElement('div'); seg.style.width=(n/total*100)+'%'; seg.style.background=`hsl(${BAND_HEX[b]})`; bar.appendChild(seg);
     const chip=document.createElement('span'); chip.className='inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-0.5 text-xs';

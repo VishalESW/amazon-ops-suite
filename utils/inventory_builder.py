@@ -15,6 +15,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from utils.band_classifier import sort_product_list
+
 # ----------------------------------------------------------------- styling ---
 NAVY = "1F2D3D"
 WHITE = "FFFFFF"
@@ -24,13 +26,11 @@ BAND_ROW_FILL = {
     "BAND A": ("D6E4F0", "EBF4FB"),
     "BAND B": ("D5F5E3", "EAFAF1"),
     "BAND C": ("FDEBD0", "FEF5E7"),
-    "EOL":    ("FADBD8", "FDFEFE"),
 }
 BAND_PILL = {
     "BAND A": "3B82F6",
     "BAND B": "22C55E",
     "BAND C": "D4A017",
-    "EOL":    "E74C3C",
 }
 
 _thin = Side(style="thin", color="D0D0D0")
@@ -249,6 +249,9 @@ def _build_all_listings(wb, reports, market):
 
 def _build_sheet1(wb, product_list, s1_name, market, increase_factor=0.0):
     ws = wb.create_sheet(s1_name)
+    # Always emit rows ordered by band (A→B→C) then A-Z — covers the user-edited
+    # regenerate path where bands may have changed after the initial fetch.
+    product_list = sort_product_list(product_list)
     n = len(product_list)
     first_data = 11
     last_data = first_data + n - 1 if n else first_data
@@ -291,7 +294,8 @@ def _build_band_summary(ws):
     for j, h in enumerate(headers):
         _hdr_cell(ws.cell(row=1, column=20 + j, value=h), size=9)
 
-    bands = [("BAND A", 3), ("BAND B", 2.5), ("BAND C", 2), ("EOL", 0)]
+    # BAND A/B/C only — EOL is decided by the client, not auto-assigned.
+    bands = [("BAND A", 3), ("BAND B", 2.5), ("BAND C", 2)]
     for k, (label, mos) in enumerate(bands):
         r = 2 + k
         ws.cell(row=r, column=20, value=label).font = Font(name=FONT, size=9, bold=True)  # T
@@ -303,14 +307,14 @@ def _build_band_summary(ws):
         ws.cell(row=r, column=26, value=f"=SUMIFS(V:V,$I:$I,$T{r})")                       # Z Desired
         ws.cell(row=r, column=24).number_format = "0%"
 
-    # Totals row 6.
-    ws.cell(row=6, column=20, value="TOTALS").font = Font(name=FONT, size=9, bold=True)
-    ws.cell(row=6, column=22, value="=SUM(V2:V5)")
-    ws.cell(row=6, column=23, value="=SUM(W2:W5)")
-    ws.cell(row=6, column=24, value="=IFERROR(W6/V6,0)")
-    ws.cell(row=6, column=24).number_format = "0%"
-    ws.cell(row=6, column=25, value="=SUM(Y2:Y5)")
-    ws.cell(row=6, column=26, value="=SUM(Z2:Z5)")
+    # Totals row 5 (directly under BAND C).
+    ws.cell(row=5, column=20, value="TOTALS").font = Font(name=FONT, size=9, bold=True)
+    ws.cell(row=5, column=22, value="=SUM(V2:V4)")
+    ws.cell(row=5, column=23, value="=SUM(W2:W4)")
+    ws.cell(row=5, column=24, value="=IFERROR(W5/V5,0)")
+    ws.cell(row=5, column=24).number_format = "0%"
+    ws.cell(row=5, column=25, value="=SUM(Y2:Y4)")
+    ws.cell(row=5, column=26, value="=SUM(Z2:Z4)")
 
 
 def _build_subtotals(ws, bottom):
@@ -368,7 +372,7 @@ def _write_product_row(ws, row, p, s1_name):
         22: (f"=IFERROR(MAX(0,IF($I{row}=$T$2,ROUNDUP(P{row}*(1+$P$5)*$U$2,0),"
              f"IF($I{row}=$T$3,ROUNDUP(P{row}*(1+$P$5)*$U$3,0),"
              f"IF($I{row}=$T$4,ROUNDUP(P{row}*(1+$P$5)*$U$4,0),"
-             f"ROUNDUP(P{row}*(1+$P$5)*$U$5,0))))-U{row}),0)"),         # V Desired Repl
+             f"0)))-U{row}),0)"),                                       # V Desired Repl
     }
     for col, f in formulas.items():
         c = ws.cell(row=row, column=col, value=f)

@@ -1,19 +1,33 @@
 """Assemble the Sheet-1 static product list (cols A-L) for the inventory workbook.
 
-Sources every SKU from the FBA inventory + All Listings reports, looks up the
-child ASIN / title / fulfilment, auto-assigns a BAND from sales velocity, and
-merges any per-account overrides the user saved previously.
+Sources every FBA SKU from the FBA inventory + All Listings reports (FBM/MFN
+products are excluded), looks up the child ASIN / title / fulfilment,
+auto-assigns a BAND from sales velocity, and merges any per-account overrides
+the user saved previously.
 
-BAND auto-rules (per the skill's guidance — A fastest, EOL = no sales):
-  - Zero units across all 6 periods            -> EOL
-  - Otherwise rank by L30D units (then Avg):
+BAND auto-rules (A fastest). EOL is NOT auto-assigned — the client decides
+end-of-life themselves, so every product is ranked into A/B/C by L30D units
+(then total units):
        top 25%   -> BAND A
        next 35%  -> BAND B
-       remainder -> BAND C
+       remainder -> BAND C   (zero-sales products fall here)
 The user can override any of these in the preview table before generating.
+
+The final list is ordered by BAND (A → B → C) then alphabetically (A-Z) by title.
 """
 
-BANDS = ["BAND A", "BAND B", "BAND C", "EOL"]
+BANDS = ["BAND A", "BAND B", "BAND C"]
+
+_BAND_ORDER = {"BAND A": 0, "BAND B": 1, "BAND C": 2}
+
+
+def sort_product_list(rows):
+    """Order rows by band (A→B→C), then A-Z by title, then SKU."""
+    return sorted(rows, key=lambda r: (
+        _BAND_ORDER.get(r.get("band"), 9),
+        (r.get("title") or "").strip().lower(),
+        (r.get("sku") or "").strip().lower(),
+    ))
 
 
 def _is_fba(fba_row, listing_row):
@@ -50,9 +64,12 @@ def build_product_list(reports, overrides=None):
     for sku in skus:
         fba = fba_by_sku.get(sku, {})
         listing = listing_by_sku.get(sku, {})
+        # FBA-only: skip FBM/MFN products entirely.
+        if not _is_fba(fba, listing):
+            continue
         asin = (fba.get("asin") or listing.get("asin1") or "").strip()
         title = (fba.get("product-name") or listing.get("item-name") or "").strip()
-        fulfillment = "FBA" if _is_fba(fba, listing) else "FBM"
+        fulfillment = "FBA"
 
         l30 = int(sales30.get(asin, 0) or 0)
         total_units = sum(int(period.get(asin, 0) or 0) for period in sales_all.values())
@@ -86,24 +103,20 @@ def build_product_list(reports, overrides=None):
             if ov.get(key) not in (None, ""):
                 r[key] = ov[key]
 
-    return rows
+    # Order by band (A→B→C) then A-Z by title.
+    return sort_product_list(rows)
 
 
 def _auto_assign_bands(rows):
-    sellers = [r for r in rows if r["_total_units"] > 0]
-    dead = [r for r in rows if r["_total_units"] <= 0]
-
-    for r in dead:
-        r["band"] = "EOL"
-
-    if not sellers:
+    """Rank ALL products into A/B/C by velocity. EOL is never auto-assigned —
+    zero-sales products simply fall into BAND C (lowest velocity)."""
+    if not rows:
         return
-
-    sellers.sort(key=lambda r: (r["_l30d"], r["_total_units"]), reverse=True)
-    n = len(sellers)
+    ranked = sorted(rows, key=lambda r: (r["_l30d"], r["_total_units"]), reverse=True)
+    n = len(ranked)
     a_cut = max(1, round(n * 0.25))
     b_cut = a_cut + max(1, round(n * 0.35))
-    for i, r in enumerate(sellers):
+    for i, r in enumerate(ranked):
         if i < a_cut:
             r["band"] = "BAND A"
         elif i < b_cut:
