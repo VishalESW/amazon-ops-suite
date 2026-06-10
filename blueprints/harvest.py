@@ -237,15 +237,24 @@ def apply():
     except AdLabsError as e:
         errors.append(f"harvest: {e}")
 
-    # Negate: build a search_term reference of selected rows, create AD_GROUP negatives.
+    # Negate: group selected rows by chosen match (EXACT / PHRASE), then create the
+    # corresponding AD_GROUP negative for each group.
+    _NEG_MATCH = {"EXACT": "AD_GROUP_NEGATIVE_EXACT", "PHRASE": "AD_GROUP_NEGATIVE_PHRASE"}
     try:
-        ids = [str(n["search_term_id"]) for n in negate if n.get("search_term_id")]
-        if ids:
+        by_match = defaultdict(list)
+        for n in negate:
+            if not n.get("search_term_id"):
+                continue
+            match = (n.get("match") or "EXACT").upper()
+            if match not in _NEG_MATCH:
+                match = "EXACT"
+            by_match[match].append(str(n["search_term_id"]))
+        for match, ids in by_match.items():
             st_sub = _adlabs.first_reference(
                 _adlabs.query(cache["st_ref"], _in_sql("search_term_id", ids)))
             _adlabs.create_entities(
                 entity_type="negative_targeting", team_id=team_id, profile_id=profile_id,
-                reference=st_sub, match_types=json.dumps(["AD_GROUP_NEGATIVE_EXACT"]), note=note)
+                reference=st_sub, match_types=json.dumps([_NEG_MATCH[match]]), note=note)
             applied["negated"] += len(ids)
     except AdLabsError as e:
         errors.append(f"negate: {e}")

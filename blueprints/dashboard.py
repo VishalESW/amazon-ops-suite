@@ -111,6 +111,48 @@ def _amazon_img(asin):
     return f"https://images-na.ssl-images-amazon.com/images/P/{asin}.01._SX80_.jpg"
 
 
+# Targeting-type group constants (top-level expand under a product).
+TG_KEYWORDS = "Keywords"
+TG_PRODUCT  = "Product Targeting"
+TG_CATEGORY = "Category Targeting"
+TG_AUTO     = "Auto Targeting"
+
+_ASIN_TGT_RE = re.compile(r'asin(?:-expanded)?="?([A-Za-z0-9]+)"?', re.I)
+_CAT_TGT_RE  = re.compile(r'category="?([^"]+)"?', re.I)
+
+
+def _classify_target(entity_type, match_raw, targeting):
+    """Classify one target into (group, sub, display_text).
+
+    group: Keywords / Product Targeting / Category Targeting / Auto Targeting
+    sub:   for Keywords → EXACT/PHRASE/BROAD/THEME; otherwise the match label
+    display_text: cleaned label for the row (keyword text, ASIN, category id…)
+    """
+    et = (entity_type or "").strip().lower()
+    m  = (match_raw or "").strip()
+    ml = m.lower()
+    tg = (targeting or "").strip()
+
+    # Auto targeting (close-match / loose-match / substitutes / complements)
+    if ml == "auto" or tg.lower() in ("close-match", "loose-match", "substitutes", "complements"):
+        return TG_AUTO, (tg or m or "auto").lower(), (tg or "auto")
+
+    # Category targeting
+    if ml == "category" or tg.lower().startswith("category"):
+        cm = _CAT_TGT_RE.search(tg)
+        return TG_CATEGORY, "all", ("Category " + cm.group(1)) if cm else (tg or "Category")
+
+    # Product targeting (ASIN / expanded)
+    if "product" in et or tg.lower().startswith("asin") or "pt" in ml.replace(".", ""):
+        am = _ASIN_TGT_RE.search(tg)
+        sub = "Expanded" if "exp" in ml else ("Individual" if "indiv" in ml else "all")
+        return TG_PRODUCT, sub, (am.group(1).upper() if am else (tg or "Product"))
+
+    # Keyword targeting (default)
+    sub = m.upper() if m else "OTHER"
+    return TG_KEYWORDS, sub, tg
+
+
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 def _fetch_inventory(sp_client, skus):
@@ -691,7 +733,10 @@ def load():
         for r in t_rows:
             cid    = r.get("campaign_id") or ""
             kw     = (r.get("targeting") or r.get("keyword_text") or "").strip()
-            match  = (r.get("match_types") or r.get("match_type") or "").strip().upper()
+            match_raw = (r.get("match_types") or r.get("match_type") or "").strip()
+            match  = match_raw.upper()
+            ent_type = (r.get("target_entity_type") or "").strip()
+            tgroup, tsub, kw_display = _classify_target(ent_type, match_raw, kw)
             bid    = _f(r.get("bid"))
             impr   = _f(r.get("impressions"))
             impr_p = _f(r.get("compare_impressions") or r.get("prev_impressions"))
@@ -711,7 +756,10 @@ def load():
             tgt = {
                 "target_id":          r.get("target_id", ""),
                 "keyword":            kw,
+                "keyword_display":    kw_display,
                 "match_type":         match,
+                "targeting_group":    tgroup,   # Keywords / Product Targeting / Category / Auto
+                "targeting_sub":      tsub,      # EXACT/PHRASE/BROAD or all
                 "state":              state,
                 "bid":                round(bid, 2),
                 "impressions":        int(impr),
@@ -817,6 +865,22 @@ def load():
             total_sales  = sum(c["sales"]       for c in camp_objs)
             total_orders = sum(c["orders"]      for c in camp_objs)
 
+            # ── Targeting groups: all the product's targets, by targeting type ──
+            # Keywords → {EXACT/PHRASE/BROAD: [t...]}; Product Targeting / Category /
+            # Auto → {all: [t...]}. Each target keeps its campaign name (column).
+            prod_targets = [t for c in camp_objs for t in c.get("targets", [])]
+            targeting = {}
+            for t in prod_targets:
+                grp = t.get("targeting_group") or TG_KEYWORDS
+                sub = t.get("targeting_sub") or "all"
+                if grp != TG_KEYWORDS:
+                    sub = "all"   # PAT / Category / Auto are flat
+                targeting.setdefault(grp, {}).setdefault(sub, []).append(t)
+            # Sort each bucket by spend
+            for grp in targeting:
+                for sub in targeting[grp]:
+                    targeting[grp][sub].sort(key=lambda x: x["spend"], reverse=True)
+
             sp_info = spapi_by_asin.get(asin, {})
 
             products.append({
@@ -842,8 +906,9 @@ def load():
                 "roas":          round(total_sales / total_spend, 2) if total_spend > 0 else 0,
                 "organic_sales": None,   # requires SP-API Business Report (not loaded here)
                 # Hierarchy
-                "campaigns":       by_type,
+                "campaigns":       by_type,           # kept for SP/SB/SD badges
                 "campaign_count":  len(camp_objs),
+                "targeting":       targeting,          # NEW: targeting-type tree
             })
 
         products.sort(key=lambda p: p["spend"], reverse=True)
@@ -899,14 +964,21 @@ def search_terms():
     team_id     = body.get("team_id")
     profile_id  = body.get("profile_id")
     campaign_id = body.get("campaign_id")
+    # Keyword-level filter (optional): search terms for ONE keyword/target.
+    targeting   = body.get("targeting")     # the keyword's targeting expression
+    ad_group_id = body.get("ad_group_id")
     # Rebuild filters server-side from date params (never trust raw filters from client)
     lookback    = int(body.get("lookback_days", 30))
     start_date  = body.get("start_date")
     end_date    = body.get("end_date")
     filters, _  = _date_filters_dash(lookback, start_date, end_date)
 
-    if not team_id or not profile_id or not campaign_id:
-        return jsonify({"success": False, "error": "team_id, profile_id, campaign_id required"}), 400
+    if not team_id or not profile_id or not (campaign_id or (targeting and ad_group_id)):
+        return jsonify({"success": False,
+                        "error": "team_id, profile_id and (campaign_id OR targeting+ad_group_id) required"}), 400
+
+    def _esc(v):
+        return str(v).replace("'", "''")
 
     def work(progress):
         progress("Fetching search terms…")
@@ -916,10 +988,14 @@ def search_terms():
         st_ref  = _adlabs.first_reference(st_out)
         if not st_ref:
             return {"rows": []}
-        # Filter to this campaign
+        # Keyword-level (targeting + ad_group) takes priority over campaign-level.
+        if targeting and ad_group_id:
+            where = (f"targeting='{_esc(targeting)}' AND ad_group_id='{_esc(ad_group_id)}'")
+        else:
+            where = f"campaign_id='{_esc(campaign_id)}'"
         sub = _adlabs.first_reference(
             _adlabs.query(st_ref,
-                          f"SELECT * FROM reference_data WHERE campaign_id='{campaign_id}' "
+                          f"SELECT * FROM reference_data WHERE {where} "
                           "ORDER BY spend DESC LIMIT 300"))
         if not sub:
             return {"rows": []}

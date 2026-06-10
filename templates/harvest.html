@@ -161,9 +161,9 @@
     <div class="max-h-[56vh] overflow-auto"><table class="w-full text-sm">
       <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
         <th class="px-3 py-2.5"><input type="checkbox" id="nAll" onchange="toggleAll('n',this)" class="accent-amber"></th>
-        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Campaign → Ad group</th>
+        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">Negate as</th><th class="px-3 py-2.5">Product</th><th class="px-3 py-2.5">Campaign → Ad group</th>
         <th class="px-3 py-2.5 text-right">Clicks</th><th class="px-3 py-2.5 text-right">Spend</th><th class="px-3 py-2.5 text-right">Sales</th>
-        <th class="px-3 py-2.5 text-right">ACOS</th><th class="px-3 py-2.5">Reason</th>
+        <th class="px-3 py-2.5 text-right">Orders</th><th class="px-3 py-2.5 text-right">ACOS</th><th class="px-3 py-2.5">Reason</th>
       </tr></thead><tbody id="nBody" class="divide-y divide-border"></tbody>
     </table></div>
   </div>
@@ -343,7 +343,9 @@ async function negateSelected(){
   document.querySelectorAll('.nchk:checked').forEach(c=>{ const r=negateRows[+c.dataset.i]; if(!r||!r.search_term_id) return;
     const t=(r.search_term||'').toLowerCase();
     if(r.already_harvested || stagedTerms.has(t)) conflicts.push(r.search_term);
-    negate.push({search_term_id:r.search_term_id}); });
+    const sel=document.querySelector(`.nmatch[data-i="${c.dataset.i}"]`);
+    const match=sel? sel.value : 'EXACT';
+    negate.push({search_term_id:r.search_term_id, match}); });
   if(!negate.length){ toast('Select terms to negate','error'); return; }
   if(conflicts.length){
     if(!confirm(`⚠ ${conflicts.length} of these are already in targeting or staged to harvest:\n\n${conflicts.slice(0,8).join(', ')}${conflicts.length>8?'…':''}\n\nNegating a keyword you're also targeting will block it. Negate anyway?`)) return;
@@ -426,14 +428,16 @@ function renderAll(){
   negateRows.forEach((r,i)=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
     tr.innerHTML=`<td class="px-3 py-2"><input type="checkbox" data-i="${i}" class="nchk accent-amber" checked></td>
       <td class="px-3 py-2 max-w-[180px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}${r.already_harvested?' <span class=\"text-[hsl(38_92%_50%)]\" title=\"Already in targeting\">●</span>':''}</td>
+      <td class="px-3 py-2"><select data-i="${i}" class="nmatch rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"><option value="EXACT">Exact</option><option value="PHRASE">Phrase</option></select></td>
       <td class="px-3 py-2">${productCell(r)}</td>
       <td class="px-3 py-2 text-xs text-muted-foreground max-w-[200px] truncate" title="${camp(r)}">${camp(r)}</td>
       <td class="px-3 py-2 text-right num">${r.clicks}</td><td class="px-3 py-2 text-right num">$${(r.spend||0).toFixed(2)}</td>
       <td class="px-3 py-2 text-right num">$${(r.sales||0).toFixed(2)}</td>
+      <td class="px-3 py-2 text-right num">${r.orders||0}</td>
       <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
       <td class="px-3 py-2 text-xs text-muted-foreground">${esc(r.reason||'')}</td>`;
     nb.appendChild(tr); });
-  if(!negateRows.length) nb.innerHTML=emptyRow(9,'Nothing to negate.');
+  if(!negateRows.length) nb.innerHTML=emptyRow(11,'Nothing to negate.');
 
   // SQP
   const sb=document.getElementById('sBody'); sb.innerHTML='';
