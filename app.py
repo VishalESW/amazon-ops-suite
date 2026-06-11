@@ -13,7 +13,6 @@ import os
 import time
 
 from flask import Flask, render_template, jsonify, send_file, request, redirect, g
-from werkzeug.utils import secure_filename
 
 import utils.jsonutil  # noqa: F401 — installs numpy JSON encoder on import
 from config import cfg
@@ -109,7 +108,7 @@ def create_app():
             files.sort(key=lambda f: os.path.getmtime(os.path.join(cfg.OUTPUT_FOLDER, f)), reverse=True)
             for f in files[:5]:
                 path = os.path.join(cfg.OUTPUT_FOLDER, f)
-                kind = ("Inventory" if f.startswith("Inventory") else
+                kind = ("Inventory" if (f.startswith("Inventory") or "FBA Inventory" in f) else
                         "ASIN" if f.startswith("ASIN") else "N-Gram")
                 recent.append({
                     "name": f, "kind": kind,
@@ -134,18 +133,28 @@ def create_app():
         from blueprints.inventory import handle_spapi_callback
         return handle_spapi_callback()
 
-    @app.route("/download/<filename>")
+    @app.route("/download/<path:filename>")
     def download_file(filename):
-        """Shared download for any generated workbook in OUTPUT_FOLDER."""
+        """Shared download for any generated workbook in OUTPUT_FOLDER.
+
+        Preserves spaces / punctuation in the name (so reports can be titled
+        '<Account> - FBA Inventory Recommendation - Week N YYYY.xlsx') while
+        staying safe: basename strips any directory parts and we confirm the
+        resolved path stays inside OUTPUT_FOLDER.
+        """
         try:
-            filepath = os.path.join(cfg.OUTPUT_FOLDER, secure_filename(filename))
+            safe = os.path.basename(filename)
+            filepath = os.path.join(cfg.OUTPUT_FOLDER, safe)
+            out_root = os.path.realpath(cfg.OUTPUT_FOLDER)
+            if os.path.commonpath([os.path.realpath(filepath), out_root]) != out_root:
+                return jsonify({"success": False, "error": "Invalid path"}), 400
             if not os.path.exists(filepath):
                 return jsonify({"success": False, "error": "File not found"}), 404
             return send_file(
                 filepath,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
-                download_name=filename,
+                download_name=safe,
             )
         except Exception as e:  # noqa: BLE001
             return jsonify({"success": False, "error": str(e)}), 500

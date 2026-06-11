@@ -231,7 +231,7 @@ async function pollFetch(acct, jobId){
       products = data.product_list||[];
       renderStats(data.stats||{});
       renderPreview();
-      if(data.filename){ document.getElementById('downloadName').textContent=data.filename; document.getElementById('downloadLink').href=`/download/${data.filename}`; document.getElementById('downloadCard').classList.remove('hidden'); }
+      if(data.filename){ document.getElementById('downloadName').textContent=data.filename; document.getElementById('downloadLink').href=`/download/${encodeURIComponent(data.filename)}`; document.getElementById('downloadCard').classList.remove('hidden'); }
       toast('Inventory workbook ready','success');
       return;
     }

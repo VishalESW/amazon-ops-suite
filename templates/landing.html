@@ -230,7 +230,7 @@
           <p class="truncate text-sm font-medium num">{{ f.name }}</p>
           <p class="text-xs text-muted-foreground">{{ f.kind }} · {{ f.size_kb }} KB · {{ f.when }}</p>
         </div>
-        <a href="/download/{{ f.name }}" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-accent transition">
+        <a href="/download/{{ f.name | urlencode }}" class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold hover:bg-accent transition">
           <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
           Download
         </a>

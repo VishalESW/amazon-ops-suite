@@ -12,6 +12,7 @@ Flow:
 """
 
 import os
+import re
 import secrets
 from datetime import datetime
 
@@ -32,6 +33,17 @@ bp = Blueprint("inventory", __name__, url_prefix="/inventory")
 
 # account_id -> last pulled reports (kept in-process for the generate step)
 _report_cache = {}
+
+
+def _report_filename(account_name):
+    """Build the download filename:
+    '<Account Name> - FBA Inventory Recommendation - Week <N> <Year>.xlsx'.
+    Strips Windows-forbidden characters but keeps spaces and normal punctuation."""
+    name = re.sub(r'[<>:"/\\|?*]', "", account_name or "").strip()
+    name = re.sub(r"\s+", " ", name) or "Account"
+    iso = datetime.now().isocalendar()
+    week = f"Week {iso[1]} {iso[0]}"   # ISO week number + ISO year
+    return f"{name} - FBA Inventory Recommendation - {week}.xlsx"
 
 
 @bp.route("")
@@ -162,8 +174,8 @@ def fetch(account_id):
         _report_cache[account_id] = reports
 
         progress("Building inventory workbook…")
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Inventory_Transfer_{market}_{ts}.xlsx"
+        acct_label = store_name or account.get("name") or account.get("selling_partner_id") or "Account"
+        filename = _report_filename(acct_label)
         output_path = os.path.join(cfg.OUTPUT_FOLDER, filename)
         build_inventory_workbook(reports, product_list, output_path, market=market,
                                  increase_factor=increase_factor)
@@ -228,8 +240,8 @@ def generate(account_id):
     # Persist user overrides so next fetch remembers them.
     db.save_band_map(account_id, product_list)
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"Inventory_Transfer_{market}_{ts}.xlsx"
+    acct_label = account.get("name") or account.get("selling_partner_id") or "Account"
+    filename = _report_filename(acct_label)
     output_path = os.path.join(current_app.config["OUTPUT_FOLDER"], filename)
     build_inventory_workbook(reports, product_list, output_path, market=market)
 
