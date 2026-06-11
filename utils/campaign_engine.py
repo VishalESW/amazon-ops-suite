@@ -440,12 +440,16 @@ def _build_semantics(ws, inp: BuildInput, has_str, sqp_tabs):
         _set(ws, "A", r, row.get("keyword", ""))
         _set(ws, "B", r, row.get("source", ""))
         _set(ws, "K", r, row.get("category", ""))
-        if row.get("kw_type"):
-            _set(ws, "L", r, row["kw_type"])
-        if row.get("match"):
-            _set(ws, "M", r, row["match"])
-        if row.get("broad_list"):
-            _set(ws, "N", r, row["broad_list"])
+        # L (KW Vol. / SKW-MKW), M (Match Type) and N (Broad KW List) are
+        # user-controlled: EMPTY by default, written only from the user's manual
+        # edits in the app (disp_* fields). The col-P campaign lookup keys off
+        # L & M, so it shows "n/a" until the user fills them — by design.
+        if row.get("disp_kw_type"):
+            _set(ws, "L", r, row["disp_kw_type"])
+        if row.get("disp_match"):
+            _set(ws, "M", r, row["disp_match"])
+        if row.get("disp_broad"):
+            _set(ws, "N", r, row["disp_broad"])
         if row.get("product"):
             _set(ws, "O", r, row["product"])
         if row.get("placement_mod") is not None:

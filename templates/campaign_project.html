@@ -51,6 +51,15 @@ table.cp-grid thead .cp-sticky-l{ z-index:3; background:hsl(var(--muted)); }
   font-size:.78rem; font-weight:600; cursor:pointer; white-space:nowrap; }
 .cp-filetab[data-on="1"]{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:transparent; }
 .cp-kwcol{ background:hsl(var(--accent)/.4); font-weight:600; }
+/* Editable sheet-view grid */
+table.cp-grid td.cp-edit{ padding:0; }
+.cp-cellinput{ width:100%; min-width:90px; border:0; background:transparent; padding:.45rem .6rem;
+  font:inherit; font-size:.8rem; color:inherit; }
+.cp-cellinput:focus{ outline:2px solid hsl(var(--ring)); outline-offset:-2px; background:hsl(var(--background)); }
+.cp-cellinput::placeholder{ color:hsl(var(--muted-foreground)/.55); font-style:italic; }
+.cp-filter{ width:100%; min-width:90px; border:1px solid hsl(var(--input)); border-radius:.3rem;
+  background:hsl(var(--background)); padding:.2rem .4rem; font-size:.72rem; font-weight:400; }
+table.cp-grid thead tr.cp-filterrow th{ position:sticky; top:2.1rem; z-index:2; background:hsl(var(--card)); padding:.25rem .4rem; }
 .cp-tagsel{ border:1px solid hsl(var(--input)); border-radius:.375rem; background:hsl(var(--background));
   padding:.15rem .35rem; font-size:.75rem; }
 .cp-tag-Y{ color:hsl(var(--success)); font-weight:700; }
@@ -260,9 +269,12 @@ table.cp-grid thead .cp-sticky-l{ z-index:3; background:hsl(var(--muted)); }
     {% elif cur == 'semantics' %}
     <section class="cp-card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div><h2 class="text-lg font-semibold">Semantics preview</h2>
-          <p class="text-sm text-muted-foreground">Keywords tagged <strong>Y</strong>, with the generated root category and the SV-digit campaign rule applied. Search volume &amp; bids are live formulas in the workbook.</p></div>
-        <button onclick="advanceTo('asin_sel')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to ASIN selection</button>
+        <div><h2 class="text-lg font-semibold">Semantics — editable sheet view</h2>
+          <p class="text-sm text-muted-foreground">All columns are editable; filter any column. <strong>KW Vol.</strong>, <strong>Match Type</strong> &amp; <strong>Broad KW List</strong> are blank by default — fill them in here and they flow into the generated file. Search volume &amp; bids stay live formulas.</p></div>
+        <div class="flex items-center gap-2">
+          <button id="semSaveBtn" onclick="saveGridEdits('sem')" class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition">Save edits</button>
+          <button onclick="advanceTo('asin_sel')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to ASIN selection</button>
+        </div>
       </div>
       <div id="asmRoots" class="mb-3"></div>
       <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
@@ -528,14 +540,33 @@ function renderAsinGrid(){
   AS_DATA.asins.forEach((a,idx)=>{
     if(q && !(a.asin+' '+a.context).toLowerCase().includes(q)) return;
     const tag=AS_TAGS[a.asin]||'';
-    body+=`<tr><td class="cp-sticky-l num">${idx+1}</td><td class="num">${esc(a.asin)}</td>
-      <td>${esc(a.context||'—')}</td><td class="text-muted-foreground">${esc(a.col||'')}</td>
-      <td>${asinSelect(a.asin,tag)}</td></tr>`;
+    body+=`<tr><td class="cp-sticky-l num">${idx+1}</td><td class="num cpa-f" data-c="0">${esc(a.asin)}</td>
+      <td class="cpa-f" data-c="1">${esc(a.context||'—')}</td><td class="text-muted-foreground cpa-f" data-c="2">${esc(a.col||'')}</td>
+      <td class="cpa-tag">${asinSelect(a.asin,tag)}</td></tr>`;
   });
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid">
-    <thead><tr><th class="cp-sticky-l">#</th><th>ASIN</th><th>Context</th><th>Column</th><th class="cp-kwcol">PAT type</th></tr></thead>
+    <thead>
+      <tr><th class="cp-sticky-l">#</th><th>ASIN</th><th>Context</th><th>Column</th><th class="cp-kwcol">PAT type</th></tr>
+      <tr class="cp-filterrow"><th class="cp-sticky-l"></th>
+        <th><input class="cp-filter" data-c="0" oninput="cpAsinFilter()" placeholder="filter…"></th>
+        <th><input class="cp-filter" data-c="1" oninput="cpAsinFilter()" placeholder="filter…"></th>
+        <th><input class="cp-filter" data-c="2" oninput="cpAsinFilter()" placeholder="filter…"></th>
+        <th><input class="cp-filter" data-c="tag" oninput="cpAsinFilter()" placeholder="filter…"></th></tr>
+    </thead>
     <tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
+}
+function cpAsinFilter(){
+  const host=document.getElementById('asHost');
+  const fv={}; host.querySelectorAll('.cp-filter').forEach(i=>fv[i.dataset.c]=i.value.trim().toLowerCase());
+  host.querySelectorAll('tbody tr').forEach(tr=>{
+    let show=true;
+    ['0','1','2'].forEach(c=>{ if(fv[c]){ const cell=tr.querySelector(`.cpa-f[data-c="${c}"]`);
+      if(!cell||!cell.textContent.toLowerCase().includes(fv[c])) show=false; }});
+    if(fv['tag']){ const sel=tr.querySelector('.cpa-tag select');
+      if(!sel||!(sel.value||'').toLowerCase().includes(fv['tag'])) show=false; }
+    tr.style.display=show?'':'none';
+  });
 }
 function asinSelect(asin,tag){
   const opts=PAT_OPTS.map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
@@ -584,14 +615,60 @@ function gridTable(cols, rows){
   const body=rows.map(r=>'<tr>'+r.map(c=>`<td>${esc(c==null?'':c)}</td>`).join('')+'</tr>').join('');
   return `<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
+// ---- Editable sheet-view grids (Semantics + PAT) -------------------------
+const GRIDS={};
+function editableGrid(kind){
+  const g=GRIDS[kind];
+  const head='<tr>'+g.cols.map(([f,l])=>`<th>${esc(l)}</th>`).join('')+'</tr>';
+  const filt='<tr class="cp-filterrow">'+g.cols.map(([f,l],ci)=>
+    `<th><input class="cp-filter" data-ci="${ci}" oninput="cpFilter('${kind}')" placeholder="filter…"></th>`).join('')+'</tr>';
+  const body=g.rows.map((row,ri)=>'<tr data-ri="'+ri+'">'+g.cols.map(([f,l])=>{
+    const v=row[f]==null?'':row[f];
+    const ph=g.ph[f]?(row[g.ph[f]]||''):'';
+    return `<td class="cp-edit"><input class="cp-cellinput" value="${esc(v)}" `+
+      (ph?`placeholder="${esc(ph)}" `:'')+
+      `oninput="cpEdit('${kind}',${ri},'${f}',this.value)"></td>`;
+  }).join('')+'</tr>').join('');
+  return `<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}${filt}</thead><tbody>${body}</tbody></table></div>`;
+}
+function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
+  (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
+  const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
+function cpFilter(kind){ const g=GRIDS[kind];
+  const wrap=document.querySelector(`#${g.host} table.cp-grid`); if(!wrap) return;
+  const filters=[...wrap.querySelectorAll('.cp-filter')].map(i=>i.value.trim().toLowerCase());
+  wrap.querySelectorAll('tbody tr').forEach(tr=>{
+    const cells=[...tr.querySelectorAll('.cp-cellinput')];
+    const show=filters.every((fv,ci)=>!fv || (cells[ci]&&cells[ci].value.toLowerCase().includes(fv)));
+    tr.style.display=show?'':'none';
+  });
+}
+async function saveGridEdits(kind){ const g=GRIDS[kind];
+  const btn=document.getElementById(kind+'SaveBtn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  try{
+    const r=await fetch(g.saveUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({edits:g.edits})}).then(r=>r.json());
+    if(r.success){ g.dirty=false; toast(`Saved ${r.count} edited row(s)`,'success'); }
+    else toast(r.error||'Save failed','error');
+  }catch(e){ toast('Network error','error'); }
+  finally{ if(btn){btn.disabled=false;btn.textContent='Save edits';} }
+}
+
 function renderSemantics(){
   const roots=ASM.meta.roots||[];
   document.getElementById('asmRoots').innerHTML='<span class="text-xs text-muted-foreground mr-2">Root keywords:</span>'+
     (roots.length?roots.map(r=>`<span class="cp-badge mr-1">${esc(r)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>');
-  const rows=ASM.semantics.map(s=>[s.keyword,s.source,s.category,s.type,s.match]);
+  GRIDS.sem={
+    host:'asmHost',
+    cols:[['keyword','Keyword'],['source','Source'],['category','Root / Category'],
+          ['disp_kw_type','KW Vol.'],['disp_match','Match Type'],['disp_broad','Broad KW List'],
+          ['product','Product'],['placement_mod','Placement'],['asp','ASP'],['acos_target','ACoS']],
+    rows:ASM.semantics||[], edits:{}, ph:{disp_kw_type:'_auto_kw_type',disp_match:'_auto_match'},
+    saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
+  };
   document.getElementById('asmHost').innerHTML=
-    `<p class="text-xs text-muted-foreground mb-2">${rows.length} keyword(s) into Semantics</p>`+
-    gridTable(['Keyword','Source','Root / Category','Type','Match'], rows);
+    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · all cells editable · faint text in KW Vol./Match = the SV-rule suggestion (not written unless you type it)</p>`+
+    editableGrid('sem');
 }
 function renderMaster(){
   const m=ASM.master;

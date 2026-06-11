@@ -29,6 +29,36 @@ DEFAULT_ACOS = 0.30
 DEFAULT_PLACEMENT = 0.25
 DEFAULT_ASP = 24.95
 
+# Editable grids: which fields the user may override + which are numeric.
+# Edits are saved per-row by index: {"<rowIndex>": {field: value, ...}}.
+SEM_EDITABLE = ["keyword", "source", "category", "disp_kw_type", "disp_match",
+                "disp_broad", "product", "placement_mod", "asp", "acos_target"]
+SEM_NUMERIC = {"placement_mod", "asp", "acos_target"}
+PAT_EDITABLE = ["asin", "type", "product", "asp", "acos"]
+PAT_NUMERIC = {"asp", "acos"}
+
+
+def _apply_grid_edits(rows, edits, numeric_fields):
+    """Override row fields with the user's saved edits (keyed by row index).
+
+    Additive: with no edits the rows are untouched. Numeric fields are coerced
+    to float; blanks/invalid numbers are ignored so a bad cell never breaks build.
+    """
+    if not edits:
+        return
+    for i, row in enumerate(rows):
+        e = edits.get(str(i))
+        if not isinstance(e, dict):
+            continue
+        for field, val in e.items():
+            if field in numeric_fields:
+                try:
+                    row[field] = float(str(val).replace(",", "").replace("%", "").strip())
+                except (TypeError, ValueError):
+                    continue   # keep the computed default
+            else:
+                row[field] = val
+
 
 def _fs(pid, upload):
     """Re-open a stored raw upload as a werkzeug FileStorage for re-parsing."""
@@ -193,7 +223,10 @@ def assemble(pid):
             "category": root or (roots[0] if roots else "0-Gen"),
             "kw_type": kw_type, "match": match, "product": default_product,
             "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
+            # Sheet-display L/M/N — empty by default, filled only by user edits.
+            "disp_kw_type": "", "disp_match": "", "disp_broad": "",
         })
+    _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC)
     inp.semantics_rows = sem_rows
 
     # ---- PAT targets + MKL ASIN buckets ------------------------------------
@@ -206,6 +239,7 @@ def assemble(pid):
             pat_types.append(tag)
         pat_targets.append({"asin": asin, "type": tag, "source": "Competitor",
                             "product": default_product, "asp": default_asp, "acos": DEFAULT_ACOS})
+    _apply_grid_edits(pat_targets, state.get("pat_edits") or {}, PAT_NUMERIC)
     inp.pat_targets = pat_targets
 
     # ---- Master Keyword List manual fields ---------------------------------

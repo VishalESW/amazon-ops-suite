@@ -393,16 +393,48 @@ def assemble_preview(pid):
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-    semantics = [{"keyword": s["keyword"], "source": s["source"], "category": s["category"],
-                  "type": s["kw_type"], "match": s["match"]} for s in inp.semantics_rows]
+    # Full editable column set for the Semantics sheet view (one dict per row).
+    semantics = [{
+        "keyword": s.get("keyword", ""), "source": s.get("source", ""),
+        "category": s.get("category", ""),
+        "disp_kw_type": s.get("disp_kw_type", ""), "disp_match": s.get("disp_match", ""),
+        "disp_broad": s.get("disp_broad", ""), "product": s.get("product", ""),
+        "placement_mod": s.get("placement_mod", ""), "asp": s.get("asp", ""),
+        "acos_target": s.get("acos_target", ""),
+        # computed (read-only) — shown for reference
+        "_auto_kw_type": s.get("kw_type", ""), "_auto_match": s.get("match", ""),
+    } for s in inp.semantics_rows]
     campaigns = [{"name": cb.campaign_name(r), "type": r.get("E"), "match": r.get("F"),
                   "root": r.get("G")} for r in inp.campaign_rows]
     master = {"competitor_kws": inp.competitor_kws, "competitor_searches": inp.competitor_searches,
               "own_branded_kws": inp.own_branded_kws, "own_branded_searches": inp.own_branded_searches,
               "own_brand_asins": inp.own_brand_asins}
-    pat = [{"asin": t["asin"], "type": t["type"]} for t in inp.pat_targets]
+    pat = [{"asin": t.get("asin", ""), "type": t.get("type", ""),
+            "product": t.get("product", ""), "asp": t.get("asp", ""),
+            "acos": t.get("acos", "")} for t in inp.pat_targets]
     return jsonify({"success": True, "meta": meta, "semantics": semantics,
+                    "sem_columns": cb.SEM_EDITABLE, "pat_columns": cb.PAT_EDITABLE,
                     "campaigns": campaigns, "master": master, "pat": pat})
+
+
+@bp.route("/projects/<pid>/semantics-edits", methods=["POST"])
+def save_semantics_edits(pid):
+    """Persist per-row Semantics edits {rowIndex: {field: value}} for the build."""
+    if not cdb.get_project(pid):
+        abort(404)
+    edits = (request.get_json(silent=True) or {}).get("edits") or {}
+    cdb.save_state(pid, "semantics_edits", edits)
+    return jsonify({"success": True, "count": len(edits)})
+
+
+@bp.route("/projects/<pid>/pat-edits", methods=["POST"])
+def save_pat_edits(pid):
+    """Persist per-row PAT edits {rowIndex: {field: value}} for the build."""
+    if not cdb.get_project(pid):
+        abort(404)
+    edits = (request.get_json(silent=True) or {}).get("edits") or {}
+    cdb.save_state(pid, "pat_edits", edits)
+    return jsonify({"success": True, "count": len(edits)})
 
 
 @bp.route("/projects/<pid>/build", methods=["POST"])
