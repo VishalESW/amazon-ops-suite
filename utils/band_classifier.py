@@ -40,20 +40,34 @@ def _is_fba(fba_row, listing_row):
     inventory report (sellers often list an "-FBM" duplicate of an FBA ASIN).
     Only when there is no listing channel do we fall back to FBA-report signals.
     """
+    # Real FBA inventory present -> always include, regardless of listing
+    # channel. Sellers sometimes hold their FBA stock under a merchant-named
+    # ("-FBM") SKU whose listing channel still reads DEFAULT; excluding it would
+    # drop that product's real on-hand inventory.
+    if _fba_qty(fba_row) > 0:
+        return True
+
     chan = ((listing_row or {}).get("fulfillment-channel") or "").strip().upper()
     if chan:
         if "AMAZON" in chan or chan.startswith("AFN"):
             return True
-        return False   # DEFAULT / MERCHANT / MFN / anything explicit = FBM
+        return False   # merchant channel + no FBA stock = pure FBM
 
-    # No listing channel — rely on the FBA report.
-    if str((fba_row or {}).get("afn-listing-exists", "")).strip().lower() in {"yes", "true", "1"}:
-        return True
+    # No listing channel — rely on the FBA report listing flag.
+    return str((fba_row or {}).get("afn-listing-exists", "")).strip().lower() in {"yes", "true", "1"}
+
+
+def _fba_qty(fba_row):
+    """afn-fulfillable-quantity as a float (0 if missing/blank)."""
     try:
-        qty = float(str((fba_row or {}).get("afn-fulfillable-quantity", 0)).replace(",", "") or 0)
+        return float(str((fba_row or {}).get("afn-fulfillable-quantity", 0)).replace(",", "") or 0)
     except (TypeError, ValueError):
-        qty = 0.0
-    return qty > 0
+        return 0.0
+
+
+def _is_amazon_channel(listing_row):
+    chan = ((listing_row or {}).get("fulfillment-channel") or "").strip().upper()
+    return bool(chan) and ("AMAZON" in chan or chan.startswith("AFN"))
 
 
 def build_product_list(reports, overrides=None):
@@ -103,7 +117,15 @@ def build_product_list(reports, overrides=None):
             "band": None,            # filled below
             "_l30d": l30,
             "_total_units": total_units,
+            "_fba_qty": _fba_qty(fba),
+            "_fba_channel": _is_amazon_channel(listing),
         })
+
+    # One row per ASIN: a product can have two SKUs (e.g. an FBA SKU + an "-FBM"
+    # duplicate that actually carries the FBA stock). Keep the SKU with the most
+    # FBA inventory so the row's SKU matches the inventory in the workbook's
+    # SUMIFS; tie-break prefers the clean Amazon-channel SKU name.
+    rows = _dedupe_by_asin(rows)
 
     _auto_assign_bands(rows)
 
@@ -119,6 +141,27 @@ def build_product_list(reports, overrides=None):
 
     # Order by band (A→B→C) then A-Z by title.
     return sort_product_list(rows)
+
+
+def _dedupe_by_asin(rows):
+    """Collapse multiple SKUs of the same ASIN to one row.
+
+    Keeps the SKU with the highest FBA fulfillable quantity (so the kept SKU is
+    the one whose inventory the workbook formulas will find). On a tie, prefer
+    the Amazon-channel SKU so the displayed SKU name isn't an '-FBM' duplicate.
+    Rows without an ASIN are never merged (keyed by their SKU).
+    """
+    best = {}
+    for r in rows:
+        key = r.get("asin") or f"__sku__{r.get('sku')}"
+        cur = best.get(key)
+        if cur is None:
+            best[key] = r
+            continue
+        # Higher FBA qty wins; tie -> prefer the Amazon-channel SKU.
+        if (r["_fba_qty"], r["_fba_channel"]) > (cur["_fba_qty"], cur["_fba_channel"]):
+            best[key] = r
+    return list(best.values())
 
 
 def _auto_assign_bands(rows):
