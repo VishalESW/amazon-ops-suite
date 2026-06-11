@@ -31,8 +31,9 @@ DEFAULT_ASP = 24.95
 
 # Editable grids: which fields the user may override + which are numeric.
 # Edits are saved per-row by index: {"<rowIndex>": {field: value, ...}}.
-SEM_EDITABLE = ["keyword", "source", "category", "disp_kw_type", "disp_match",
-                "disp_broad", "product", "placement_mod", "asp", "acos_target"]
+SEM_EDITABLE = ["keyword", "source", "organic_rank", "impression_share", "ctr",
+                "category", "disp_kw_type", "disp_match", "disp_broad", "product",
+                "placement_mod", "asp", "acos_target"]
 SEM_NUMERIC = {"placement_mod", "asp", "acos_target"}
 PAT_EDITABLE = ["asin", "type", "product", "asp", "acos"]
 PAT_NUMERIC = {"asp", "acos"}
@@ -223,8 +224,12 @@ def assemble(pid):
             "category": root or (roots[0] if roots else "0-Gen"),
             "kw_type": kw_type, "match": match, "product": default_product,
             "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
-            # Sheet-display L/M/N — empty by default, filled only by user edits.
+            # Sheet-display columns — empty by default, filled only by user edits.
             "disp_kw_type": "", "disp_match": "", "disp_broad": "",
+            "organic_rank": "", "impression_share": "", "ctr": "",
+            # Search Volume (monthly) — shown read-only in the sheet view; the
+            # workbook keeps the live SV formula in column C.
+            "sv": int(round(sv)) if sv else 0,
         })
     _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC)
     inp.semantics_rows = sem_rows

@@ -450,6 +450,13 @@ def _build_semantics(ws, inp: BuildInput, has_str, sqp_tabs):
             _set(ws, "M", r, row["disp_match"])
         if row.get("disp_broad"):
             _set(ws, "N", r, row["disp_broad"])
+        # H/I/J (Organic Rank, Impression Share, CTR) — also user-fillable.
+        if row.get("organic_rank") not in (None, ""):
+            _set(ws, "H", r, row["organic_rank"])
+        if row.get("impression_share") not in (None, ""):
+            _set(ws, "I", r, row["impression_share"])
+        if row.get("ctr") not in (None, ""):
+            _set(ws, "J", r, row["ctr"])
         if row.get("product"):
             _set(ws, "O", r, row["product"])
         if row.get("placement_mod") is not None:

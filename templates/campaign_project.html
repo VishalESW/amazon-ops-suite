@@ -53,13 +53,38 @@ table.cp-grid thead .cp-sticky-l{ z-index:3; background:hsl(var(--muted)); }
 .cp-kwcol{ background:hsl(var(--accent)/.4); font-weight:600; }
 /* Editable sheet-view grid */
 table.cp-grid td.cp-edit{ padding:0; }
-.cp-cellinput{ width:100%; min-width:90px; border:0; background:transparent; padding:.45rem .6rem;
-  font:inherit; font-size:.8rem; color:inherit; }
-.cp-cellinput:focus{ outline:2px solid hsl(var(--ring)); outline-offset:-2px; background:hsl(var(--background)); }
-.cp-cellinput::placeholder{ color:hsl(var(--muted-foreground)/.55); font-style:italic; }
-.cp-filter{ width:100%; min-width:90px; border:1px solid hsl(var(--input)); border-radius:.3rem;
-  background:hsl(var(--background)); padding:.2rem .4rem; font-size:.72rem; font-weight:400; }
-table.cp-grid thead tr.cp-filterrow th{ position:sticky; top:2.1rem; z-index:2; background:hsl(var(--card)); padding:.25rem .4rem; }
+.cp-cellinput{ width:100%; min-width:92px; border:1px solid transparent; border-radius:3px;
+  background:transparent; padding:.4rem .55rem; font:inherit; font-size:.8rem; color:inherit; cursor:text; }
+.cp-cellinput:hover{ background:hsl(var(--background)); border-color:hsl(var(--border)); }
+.cp-cellinput:focus{ outline:none; border-color:hsl(var(--ring)); box-shadow:0 0 0 2px hsl(var(--ring)/.3);
+  background:hsl(var(--background)); }
+.cp-cellinput::placeholder{ color:hsl(var(--muted-foreground)/.5); font-style:italic; }
+table.cp-grid td.cp-ro{ color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.4); }
+table.cp-grid td.cp-fcol, table.cp-grid th.cp-fcol{ text-align:center; color:hsl(var(--primary)); background:hsl(var(--primary)/.06);
+  font-style:italic; font-size:.78rem; }
+/* Excel-style header filter button */
+.cp-th{ display:flex; align-items:center; gap:.4rem; justify-content:space-between; }
+.cp-filtbtn{ border:1px solid hsl(var(--border)); border-radius:3px; background:hsl(var(--background));
+  color:hsl(var(--muted-foreground)); font-size:.65rem; line-height:1; padding:.15rem .3rem; cursor:pointer; }
+.cp-filtbtn:hover{ background:hsl(var(--accent)); color:hsl(var(--foreground)); }
+.cp-filtbtn[data-active="1"]{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:transparent; }
+/* Autofilter popup */
+.cp-pop{ position:fixed; z-index:60; width:230px; background:hsl(var(--card)); border:1px solid hsl(var(--border));
+  border-radius:.5rem; box-shadow:0 10px 30px -8px rgba(0,0,0,.45); font-size:.78rem; overflow:hidden; }
+.cp-pop .cp-poprow{ display:flex; gap:.4rem; padding:.45rem .6rem; border-bottom:1px solid hsl(var(--border)); }
+.cp-pop button.cp-sort{ flex:1; border:1px solid hsl(var(--border)); border-radius:.35rem; background:hsl(var(--background));
+  padding:.3rem; cursor:pointer; font-size:.72rem; }
+.cp-pop button.cp-sort:hover{ background:hsl(var(--accent)); }
+.cp-pop input.cp-popsearch{ width:100%; border:1px solid hsl(var(--input)); border-radius:.35rem;
+  background:hsl(var(--background)); padding:.3rem .4rem; font-size:.75rem; }
+.cp-poplist{ max-height:190px; overflow:auto; padding:.3rem .4rem; }
+.cp-poplist label{ display:flex; align-items:center; gap:.4rem; padding:.2rem .25rem; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.cp-poplist label:hover{ background:hsl(var(--accent)/.5); border-radius:.25rem; }
+.cp-popfoot{ display:flex; gap:.4rem; padding:.45rem .6rem; border-top:1px solid hsl(var(--border)); }
+.cp-popfoot button{ flex:1; border-radius:.35rem; padding:.35rem; cursor:pointer; font-size:.75rem; font-weight:600; }
+.cp-popfoot .cp-apply{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border:0; }
+.cp-popfoot .cp-clear{ background:hsl(var(--background)); border:1px solid hsl(var(--border)); }
 .cp-tagsel{ border:1px solid hsl(var(--input)); border-radius:.375rem; background:hsl(var(--background));
   padding:.15rem .35rem; font-size:.75rem; }
 .cp-tag-Y{ color:hsl(var(--success)); font-weight:700; }
@@ -544,29 +569,15 @@ function renderAsinGrid(){
       <td class="cpa-f" data-c="1">${esc(a.context||'—')}</td><td class="text-muted-foreground cpa-f" data-c="2">${esc(a.col||'')}</td>
       <td class="cpa-tag">${asinSelect(a.asin,tag)}</td></tr>`;
   });
-  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid">
+  GRIDS.pat={host:'asHost', colFilter:{}};   // for the shared Excel autofilter
+  const fh=(ci,label,cls)=>`<th class="${cls||''}"><div class="cp-th"><span>${label}</span>`+
+    `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('pat',${ci},this)" title="Sort & filter">▾</button></div></th>`;
+  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid" data-kind="pat">
     <thead>
-      <tr><th class="cp-sticky-l">#</th><th>ASIN</th><th>Context</th><th>Column</th><th class="cp-kwcol">PAT type</th></tr>
-      <tr class="cp-filterrow"><th class="cp-sticky-l"></th>
-        <th><input class="cp-filter" data-c="0" oninput="cpAsinFilter()" placeholder="filter…"></th>
-        <th><input class="cp-filter" data-c="1" oninput="cpAsinFilter()" placeholder="filter…"></th>
-        <th><input class="cp-filter" data-c="2" oninput="cpAsinFilter()" placeholder="filter…"></th>
-        <th><input class="cp-filter" data-c="tag" oninput="cpAsinFilter()" placeholder="filter…"></th></tr>
+      <tr><th class="cp-sticky-l">#</th>${fh(1,'ASIN')}${fh(2,'Context')}${fh(3,'Column')}${fh(4,'PAT type','cp-kwcol')}</tr>
     </thead>
     <tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
-}
-function cpAsinFilter(){
-  const host=document.getElementById('asHost');
-  const fv={}; host.querySelectorAll('.cp-filter').forEach(i=>fv[i.dataset.c]=i.value.trim().toLowerCase());
-  host.querySelectorAll('tbody tr').forEach(tr=>{
-    let show=true;
-    ['0','1','2'].forEach(c=>{ if(fv[c]){ const cell=tr.querySelector(`.cpa-f[data-c="${c}"]`);
-      if(!cell||!cell.textContent.toLowerCase().includes(fv[c])) show=false; }});
-    if(fv['tag']){ const sel=tr.querySelector('.cpa-tag select');
-      if(!sel||!(sel.value||'').toLowerCase().includes(fv['tag'])) show=false; }
-    tr.style.display=show?'':'none';
-  });
 }
 function asinSelect(asin,tag){
   const opts=PAT_OPTS.map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
@@ -616,32 +627,89 @@ function gridTable(cols, rows){
   return `<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 // ---- Editable sheet-view grids (Semantics + PAT) -------------------------
+// Column spec: [field, label, type, placeholderField?]
+//   type 'edit' = editable input · 'ro' = read-only value · 'f' = live Excel formula
 const GRIDS={};
 function editableGrid(kind){
-  const g=GRIDS[kind];
-  const head='<tr>'+g.cols.map(([f,l])=>`<th>${esc(l)}</th>`).join('')+'</tr>';
-  const filt='<tr class="cp-filterrow">'+g.cols.map(([f,l],ci)=>
-    `<th><input class="cp-filter" data-ci="${ci}" oninput="cpFilter('${kind}')" placeholder="filter…"></th>`).join('')+'</tr>';
-  const body=g.rows.map((row,ri)=>'<tr data-ri="'+ri+'">'+g.cols.map(([f,l])=>{
-    const v=row[f]==null?'':row[f];
-    const ph=g.ph[f]?(row[g.ph[f]]||''):'';
+  const g=GRIDS[kind]; g.colFilter=g.colFilter||{};   // {ci: Set(allowedValues)}
+  const head='<tr>'+g.cols.map((c,ci)=>`<th class="${c[2]==='f'?'cp-fcol':''}">`+
+    `<div class="cp-th"><span>${esc(c[1])}</span>`+
+    `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('${kind}',${ci},this)" title="Sort & filter">▾</button>`+
+    `</div></th>`).join('')+'</tr>';
+  const body=g.rows.map((row,ri)=>'<tr data-ri="'+ri+'">'+g.cols.map(c=>{
+    const [f,l,type,phf]=c;
+    if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
+    const v=(f&&row[f]!=null)?row[f]:'';
+    if(type==='ro') return `<td class="cp-ro num">${esc(v)}</td>`;
+    const ph=phf?(row[phf]||''):'';
     return `<td class="cp-edit"><input class="cp-cellinput" value="${esc(v)}" `+
       (ph?`placeholder="${esc(ph)}" `:'')+
       `oninput="cpEdit('${kind}',${ri},'${f}',this.value)"></td>`;
   }).join('')+'</tr>').join('');
-  return `<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}${filt}</thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="cp-tablewrap"><table class="cp-grid" data-kind="${kind}"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
-function cpFilter(kind){ const g=GRIDS[kind];
-  const wrap=document.querySelector(`#${g.host} table.cp-grid`); if(!wrap) return;
-  const filters=[...wrap.querySelectorAll('.cp-filter')].map(i=>i.value.trim().toLowerCase());
-  wrap.querySelectorAll('tbody tr').forEach(tr=>{
-    const cells=[...tr.querySelectorAll('.cp-cellinput')];
-    const show=filters.every((fv,ci)=>!fv || (cells[ci]&&cells[ci].value.toLowerCase().includes(fv)));
+
+// ---- Excel-style autofilter (sort + value checklist per column) ----------
+function cpCellVal(tr,ci){ const cell=tr.children[ci]; if(!cell) return '';
+  const inp=cell.querySelector('input,select'); return (inp?inp.value:cell.textContent).trim(); }
+function cpCloseFilter(){ const p=document.getElementById('cpPop'); if(p) p.remove(); }
+function cpOpenFilter(kind,ci,btn){
+  cpCloseFilter();
+  const g=GRIDS[kind];
+  const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
+  const trs=[...tbody.querySelectorAll('tr')];
+  const distinct=[...new Set(trs.map(tr=>cpCellVal(tr,ci)))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const active=g.colFilter[ci];   // Set or undefined (=all)
+  const pop=document.createElement('div'); pop.className='cp-pop'; pop.id='cpPop';
+  pop.innerHTML=
+    `<div class="cp-poprow"><button class="cp-sort" onclick="cpSort('${kind}',${ci},1)">Sort A→Z</button>`+
+    `<button class="cp-sort" onclick="cpSort('${kind}',${ci},-1)">Sort Z→A</button></div>`+
+    `<div class="cp-poprow"><input class="cp-popsearch" placeholder="Search values…" oninput="cpPopSearch(this.value)"></div>`+
+    `<div class="cp-poplist" id="cpPopList">`+
+      `<label style="font-weight:600"><input type="checkbox" id="cpPopAll" checked onchange="cpPopToggleAll(this.checked)"> (Select all)</label>`+
+      distinct.map(v=>`<label data-v="${esc(v)}"><input type="checkbox" class="cpPopChk" value="${esc(v)}" `+
+        `${(!active||active.has(v))?'checked':''}> ${esc(v===''?'(blank)':v)}</label>`).join('')+
+    `</div>`+
+    `<div class="cp-popfoot"><button class="cp-clear" onclick="cpClearFilter('${kind}',${ci})">Clear</button>`+
+    `<button class="cp-apply" onclick="cpApplyFilter('${kind}',${ci})">Apply</button></div>`;
+  document.body.appendChild(pop);
+  const r=btn.getBoundingClientRect();
+  pop.style.top=Math.min(r.bottom+4, window.innerHeight-360)+'px';
+  pop.style.left=Math.min(r.left, window.innerWidth-240)+'px';
+  setTimeout(()=>document.addEventListener('mousedown',cpPopOutside),0);
+}
+function cpPopOutside(e){ const p=document.getElementById('cpPop'); if(p&&!p.contains(e.target)){ cpCloseFilter(); document.removeEventListener('mousedown',cpPopOutside);} }
+function cpPopSearch(q){ q=q.toLowerCase();
+  document.querySelectorAll('#cpPopList label[data-v]').forEach(l=>{ l.style.display=l.dataset.v.toLowerCase().includes(q)?'':'none'; }); }
+function cpPopToggleAll(on){ document.querySelectorAll('#cpPopList .cpPopChk').forEach(c=>{ if(c.closest('label').style.display!=='none') c.checked=on; }); }
+function cpClearFilter(kind,ci){ const g=GRIDS[kind]; delete g.colFilter[ci];
+  const b=document.querySelector(`#${g.host} .cp-filtbtn[data-ci="${ci}"]`); if(b) b.dataset.active='0';
+  cpApplyVisibility(kind); cpCloseFilter(); }
+function cpApplyFilter(kind,ci){ const g=GRIDS[kind];
+  const checked=[...document.querySelectorAll('#cpPopList .cpPopChk')].filter(c=>c.checked).map(c=>c.value);
+  const total=document.querySelectorAll('#cpPopList .cpPopChk').length;
+  const b=document.querySelector(`#${g.host} .cp-filtbtn[data-ci="${ci}"]`);
+  if(checked.length===total){ delete g.colFilter[ci]; if(b) b.dataset.active='0'; }
+  else { g.colFilter[ci]=new Set(checked); if(b) b.dataset.active='1'; }
+  cpApplyVisibility(kind); cpCloseFilter();
+}
+function cpApplyVisibility(kind){ const g=GRIDS[kind];
+  const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
+  tbody.querySelectorAll('tr').forEach(tr=>{
+    let show=true;
+    for(const ci in g.colFilter){ if(!g.colFilter[ci].has(cpCellVal(tr,+ci))){ show=false; break; } }
     tr.style.display=show?'':'none';
   });
+}
+function cpSort(kind,ci,dir){ const g=GRIDS[kind];
+  const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
+  const trs=[...tbody.querySelectorAll('tr')];
+  trs.sort((a,b)=>dir*cpCellVal(a,ci).localeCompare(cpCellVal(b,ci),undefined,{numeric:true}));
+  trs.forEach(tr=>tbody.appendChild(tr));   // reattach in order (keeps inputs + data-ri)
+  cpCloseFilter();
 }
 async function saveGridEdits(kind){ const g=GRIDS[kind];
   const btn=document.getElementById(kind+'SaveBtn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
@@ -660,14 +728,33 @@ function renderSemantics(){
     (roots.length?roots.map(r=>`<span class="cp-badge mr-1">${esc(r)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>');
   GRIDS.sem={
     host:'asmHost',
-    cols:[['keyword','Keyword'],['source','Source'],['category','Root / Category'],
-          ['disp_kw_type','KW Vol.'],['disp_match','Match Type'],['disp_broad','Broad KW List'],
-          ['product','Product'],['placement_mod','Placement'],['asp','ASP'],['acos_target','ACoS']],
-    rows:ASM.semantics||[], edits:{}, ph:{disp_kw_type:'_auto_kw_type',disp_match:'_auto_match'},
+    cols:[
+      ['keyword','Keyword','edit'],
+      ['source','Source','edit'],
+      ['sv','Search Volume','ro'],
+      [null,'Orders (7d)','f'],
+      [null,'CPC','f'],
+      [null,'ACoS','f'],
+      [null,'Conversion Rate','f'],
+      ['organic_rank','Organic Rank','edit'],
+      ['impression_share','Impression Share','edit'],
+      ['ctr','CTR','edit'],
+      ['category','Root KW','edit'],
+      ['disp_kw_type','KW Vol.','edit','_auto_kw_type'],
+      ['disp_match','Match Type','edit','_auto_match'],
+      ['disp_broad','Broad KW List','edit'],
+      ['product','Product Name','edit'],
+      [null,'Campaign Name','f'],
+      ['placement_mod','Placement Mod.','edit'],
+      ['asp','ASP','edit'],
+      ['acos_target','ACoS Target','edit'],
+      [null,'Starting Bid','f'],
+    ],
+    rows:ASM.semantics||[], edits:{},
     saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
   };
   document.getElementById('asmHost').innerHTML=
-    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · all cells editable · faint text in KW Vol./Match = the SV-rule suggestion (not written unless you type it)</p>`+
+    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas that compute when you open the workbook · faint text in KW Vol./Match = the SV-rule suggestion</p>`+
     editableGrid('sem');
 }
 function renderMaster(){

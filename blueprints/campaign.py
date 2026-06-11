@@ -393,15 +393,22 @@ def assemble_preview(pid):
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-    # Full editable column set for the Semantics sheet view (one dict per row).
+    # Full Semantics sheet (every column A-T), one dict per row.
     semantics = [{
         "keyword": s.get("keyword", ""), "source": s.get("source", ""),
-        "category": s.get("category", ""),
-        "disp_kw_type": s.get("disp_kw_type", ""), "disp_match": s.get("disp_match", ""),
-        "disp_broad": s.get("disp_broad", ""), "product": s.get("product", ""),
-        "placement_mod": s.get("placement_mod", ""), "asp": s.get("asp", ""),
-        "acos_target": s.get("acos_target", ""),
-        # computed (read-only) — shown for reference
+        "sv": s.get("sv", 0),                       # C  Search Volume (read-only)
+        "organic_rank": s.get("organic_rank", ""),  # H
+        "impression_share": s.get("impression_share", ""),  # I
+        "ctr": s.get("ctr", ""),                    # J
+        "category": s.get("category", ""),          # K  Root KW
+        "disp_kw_type": s.get("disp_kw_type", ""),  # L
+        "disp_match": s.get("disp_match", ""),      # M
+        "disp_broad": s.get("disp_broad", ""),      # N
+        "product": s.get("product", ""),            # O
+        "placement_mod": s.get("placement_mod", ""),# Q
+        "asp": s.get("asp", ""),                    # R
+        "acos_target": s.get("acos_target", ""),    # S
+        # computed (read-only) — shown as the SV-rule suggestion placeholder
         "_auto_kw_type": s.get("kw_type", ""), "_auto_match": s.get("match", ""),
     } for s in inp.semantics_rows]
     campaigns = [{"name": cb.campaign_name(r), "type": r.get("E"), "match": r.get("F"),
