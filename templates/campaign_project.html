@@ -554,7 +554,7 @@ async function saveKw(){
 }
 
 // ---- ASIN selection (PAT) ----
-let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={};
+let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={}, AS_SEL=new Set();
 const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
 if(STEP==='asin_sel') initAsin();
 async function initAsin(){
@@ -584,26 +584,59 @@ function renderAsinGrid(){
     if(q && !(a.asin+' '+(a.product_name||'')+' '+a.context).toLowerCase().includes(q)) return;
     const tag=AS_TAGS[a.asin]||'';
     const pname=a.product_name||'';
-    body+=`<tr><td class="cp-sticky-l num">${idx+1}</td><td class="num cpa-f" data-c="0">${esc(a.asin)}</td>
-      <td class="cpa-f" data-c="1" title="${esc(pname)}">${esc(pname.slice(0,38))}${pname.length>38?'…':''}</td>
-      <td class="cpa-f" data-c="2">${esc(a.context||'—')}</td><td class="text-muted-foreground cpa-f" data-c="3">${esc(a.col||'')}</td>
+    const chk=AS_SEL.has(a.asin)?'checked':'';
+    body+=`<tr>
+      <td class="cp-sticky-l" style="min-width:44px;text-align:center"><input type="checkbox" class="as-rowchk" ${chk} onchange="asSelRow('${esc(a.asin)}',this)"> <span class="text-muted-foreground" style="font-size:.72rem;font-variant-numeric:tabular-nums">${idx+1}</span></td>
+      <td class="num cpa-f">${esc(a.asin)}</td>
+      <td class="cpa-f" title="${esc(pname)}">${esc(pname.slice(0,38))}${pname.length>38?'…':''}</td>
+      <td class="cpa-f">${esc(a.context||'—')}</td>
+      <td class="text-muted-foreground cpa-f">${esc(a.col||'')}</td>
       <td class="cpa-tag">${asinSelect(a.asin,tag)}</td></tr>`;
   });
-  GRIDS.pat={host:'asHost', colFilter:{}};   // for the shared Excel autofilter
+  GRIDS.pat={host:'asHost', colFilter:{}, domOffset:0};
   const fh=(ci,label,cls)=>`<th class="${cls||''}"><div class="cp-th"><span>${label}</span>`+
     `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('pat',${ci},this)" title="Sort & filter">▾</button></div></th>`;
+  const patBulkOpts=PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}">${esc(o)}</option>`).join('');
+  const patBulkRow=`<div class="cp-bulk-row"><select class="cp-bulk-input" id="asBulkTag"><option value="">—</option>${patBulkOpts}</select><button class="cp-bulk-apply" onclick="asBulkApply()">Apply</button></div>`;
+  const selAllChk=`<input type="checkbox" id="asSelAll" title="Select all" onchange="asToggleAll(this)">`;
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid" data-kind="pat">
     <thead>
-      <tr><th class="cp-sticky-l">#</th>${fh(1,'ASIN')}${fh(2,'Product')}${fh(3,'Context')}${fh(4,'Column')}${fh(5,'PAT type','cp-kwcol')}</tr>
+      <tr>
+        <th class="cp-sticky-l" style="min-width:44px;text-align:center">${selAllChk} <span style="font-size:.72rem">#</span></th>
+        ${fh(1,'ASIN')}${fh(2,'Product')}${fh(3,'Context')}${fh(4,'Column')}
+        <th class="cp-kwcol"><div class="cp-th"><span>PAT type</span><button class="cp-filtbtn" data-ci="5" onclick="cpOpenFilter('pat',5,this)" title="Sort & filter">▾</button></div>${patBulkRow}</th>
+      </tr>
     </thead>
     <tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
 }
 function asinSelect(asin,tag){
   const opts=PAT_OPTS.map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
-  return `<select class="cp-tagsel" onchange="setAsinTag('${esc(asin)}',this.value)">${opts}</select>`;
+  return `<select class="cp-tagsel" data-asin="${esc(asin)}" onchange="setAsinTag('${esc(asin)}',this.value)">${opts}</select>`;
 }
 function setAsinTag(asin,v){ if(v) AS_TAGS[asin]=v; else delete AS_TAGS[asin]; updateAsinCounts(); }
+function asToggleAll(el){
+  AS_SEL=new Set();
+  if(el.checked && AS_DATA) AS_DATA.asins.forEach(a=>AS_SEL.add(a.asin));
+  document.querySelectorAll('#asHost .as-rowchk').forEach(cb=>cb.checked=el.checked);
+}
+function asSelRow(asin,el){
+  if(el.checked) AS_SEL.add(asin); else AS_SEL.delete(asin);
+  const sa=document.getElementById('asSelAll');
+  if(sa&&AS_DATA){ sa.checked=AS_SEL.size===AS_DATA.asins.length&&AS_DATA.asins.length>0;
+    sa.indeterminate=AS_SEL.size>0&&AS_SEL.size<AS_DATA.asins.length; }
+}
+function asBulkApply(){
+  if(!AS_SEL.size){toast('Select rows first','error');return;}
+  const tag=document.getElementById('asBulkTag').value;
+  AS_SEL.forEach(asin=>{
+    if(tag) AS_TAGS[asin]=tag; else delete AS_TAGS[asin];
+    const sel=document.querySelector(`#asHost select.cp-tagsel[data-asin="${asin}"]`);
+    if(sel) sel.value=tag||'';
+  });
+  updateAsinCounts();
+  toast(`Applied to ${AS_SEL.size} row(s)`,'success');
+}
 function bulkAsin(tag){
   if(!AS_DATA) return;
   const q=(document.getElementById('asFilter').value||'').toLowerCase();
@@ -754,7 +787,7 @@ function cpApplyBulk(kind,field,val){
 function cpCellVal(tr,ci,kind){
   const off=kind&&GRIDS[kind]?(GRIDS[kind].domOffset||0):0;
   const cell=tr.children[ci+off]; if(!cell) return '';
-  const inp=cell.querySelector('input[type!="checkbox"],select');
+  const inp=cell.querySelector('input:not([type=checkbox]),select');
   return (inp?inp.value:cell.textContent).trim();
 }
 function cpCloseFilter(){ const p=document.getElementById('cpPop'); if(p) p.remove(); }
