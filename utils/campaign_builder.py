@@ -31,8 +31,8 @@ DEFAULT_ASP = 24.95
 
 # Editable grids: which fields the user may override + which are numeric.
 # Edits are saved per-row by index: {"<rowIndex>": {field: value, ...}}.
-SEM_EDITABLE = ["keyword", "source", "organic_rank", "impression_share", "ctr",
-                "category", "disp_kw_type", "disp_match", "disp_broad", "product",
+SEM_EDITABLE = ["keyword", "source", "ctr",
+                "category", "disp_kw_type", "disp_match", "disp_broad", "product", "product_asin",
                 "placement_mod", "asp", "acos_target"]
 SEM_NUMERIC = {"placement_mod", "asp", "acos_target"}
 PAT_EDITABLE = ["asin", "type", "product", "asp", "acos"]
@@ -124,6 +124,7 @@ def assemble(pid):
         "asp": pr.get("asp"),
     } for pr in chosen]
     default_product = inp.products[0]["name"] if inp.products else brand
+    default_asin = inp.products[0]["asin"] if inp.products else ""
     default_asp = next((pr.get("asp") for pr in chosen if pr.get("asp")), DEFAULT_ASP) or DEFAULT_ASP
 
     # ---- Passthrough tabs + per-keyword search volume ----------------------
@@ -223,6 +224,7 @@ def assemble(pid):
             "keyword": kw, "source": c["source"],
             "category": root or (roots[0] if roots else "0-Gen"),
             "kw_type": kw_type, "match": match, "product": default_product,
+            "product_asin": default_asin,
             "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
             # Sheet-display columns — empty by default, filled only by user edits.
             "disp_kw_type": "", "disp_match": "", "disp_broad": "",

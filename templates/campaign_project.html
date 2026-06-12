@@ -91,6 +91,24 @@ table.cp-grid td.cp-fcol, table.cp-grid th.cp-fcol{ text-align:center; color:hsl
 .cp-tag-N{ color:hsl(var(--muted-foreground)); }
 .cp-tag-Competitor{ color:hsl(var(--warning)); font-weight:700; }
 .cp-tag-Brand{ color:hsl(258 90% 60%); font-weight:700; }
+/* Bulk-edit row in editable grid headers */
+.cp-bulk-row{ display:flex; align-items:center; gap:.2rem; padding:.2rem 0 0; min-width:0; }
+.cp-bulk-input{ flex:1; min-width:0; font-size:.71rem; border:1px solid hsl(var(--border)); border-radius:3px;
+  background:hsl(var(--background)); color:hsl(var(--foreground)); padding:.12rem .28rem; }
+.cp-bulk-input:focus{ outline:none; border-color:hsl(var(--ring)); }
+select.cp-bulk-input{ padding:.1rem .2rem; }
+.cp-bulk-apply{ font-size:.67rem; padding:.12rem .3rem; border-radius:3px; border:1px solid hsl(var(--primary)/.35);
+  background:hsl(var(--primary)/.1); color:hsl(var(--primary)); cursor:pointer; white-space:nowrap; font-weight:600; flex-shrink:0; }
+.cp-bulk-apply:hover{ background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); border-color:transparent; }
+/* Row-select checkbox column */
+.cp-chk-col{ width:30px; min-width:30px; max-width:30px; text-align:center !important; padding:.3rem .25rem !important; }
+/* Keyword column auto-expand */
+td.cp-kw-cell .cp-cellinput{ min-width:200px; }
+/* ASIN picker select in editable grid */
+.cp-asinsel{ width:100%; border:1px solid transparent; border-radius:3px; background:transparent;
+  padding:.35rem .4rem; font:inherit; font-size:.8rem; color:inherit; cursor:pointer; min-width:160px; }
+.cp-asinsel:hover{ background:hsl(var(--background)); border-color:hsl(var(--border)); }
+.cp-asinsel:focus{ outline:none; border-color:hsl(var(--ring)); background:hsl(var(--background)); }
 </style>
 {% endblock %}
 
@@ -563,10 +581,12 @@ function renderAsinGrid(){
   const q=(document.getElementById('asFilter').value||'').toLowerCase();
   let body='';
   AS_DATA.asins.forEach((a,idx)=>{
-    if(q && !(a.asin+' '+a.context).toLowerCase().includes(q)) return;
+    if(q && !(a.asin+' '+(a.product_name||'')+' '+a.context).toLowerCase().includes(q)) return;
     const tag=AS_TAGS[a.asin]||'';
+    const pname=a.product_name||'';
     body+=`<tr><td class="cp-sticky-l num">${idx+1}</td><td class="num cpa-f" data-c="0">${esc(a.asin)}</td>
-      <td class="cpa-f" data-c="1">${esc(a.context||'—')}</td><td class="text-muted-foreground cpa-f" data-c="2">${esc(a.col||'')}</td>
+      <td class="cpa-f" data-c="1" title="${esc(pname)}">${esc(pname.slice(0,38))}${pname.length>38?'…':''}</td>
+      <td class="cpa-f" data-c="2">${esc(a.context||'—')}</td><td class="text-muted-foreground cpa-f" data-c="3">${esc(a.col||'')}</td>
       <td class="cpa-tag">${asinSelect(a.asin,tag)}</td></tr>`;
   });
   GRIDS.pat={host:'asHost', colFilter:{}};   // for the shared Excel autofilter
@@ -574,7 +594,7 @@ function renderAsinGrid(){
     `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('pat',${ci},this)" title="Sort & filter">▾</button></div></th>`;
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid" data-kind="pat">
     <thead>
-      <tr><th class="cp-sticky-l">#</th>${fh(1,'ASIN')}${fh(2,'Context')}${fh(3,'Column')}${fh(4,'PAT type','cp-kwcol')}</tr>
+      <tr><th class="cp-sticky-l">#</th>${fh(1,'ASIN')}${fh(2,'Product')}${fh(3,'Context')}${fh(4,'Column')}${fh(5,'PAT type','cp-kwcol')}</tr>
     </thead>
     <tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
@@ -628,40 +648,122 @@ function gridTable(cols, rows){
 }
 // ---- Editable sheet-view grids (Semantics + PAT) -------------------------
 // Column spec: [field, label, type, placeholderField?]
-//   type 'edit' = editable input · 'ro' = read-only value · 'f' = live Excel formula
+//   type 'edit' = editable input · 'ro' = read-only · 'f' = live Excel formula · 'select_asin' = ASIN dropdown
 const GRIDS={};
 function editableGrid(kind){
-  const g=GRIDS[kind]; g.colFilter=g.colFilter||{};   // {ci: Set(allowedValues)}
-  const head='<tr>'+g.cols.map((c,ci)=>`<th class="${c[2]==='f'?'cp-fcol':''}">`+
-    `<div class="cp-th"><span>${esc(c[1])}</span>`+
-    `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('${kind}',${ci},this)" title="Sort & filter">▾</button>`+
-    `</div></th>`).join('')+'</tr>';
-  const body=g.rows.map((row,ri)=>'<tr data-ri="'+ri+'">'+g.cols.map(c=>{
-    const [f,l,type,phf]=c;
-    if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
-    const v=(f&&row[f]!=null)?row[f]:'';
-    if(type==='ro') return `<td class="cp-ro num">${esc(v)}</td>`;
-    const ph=phf?(row[phf]||''):'';
-    return `<td class="cp-edit"><input class="cp-cellinput" value="${esc(v)}" `+
-      (ph?`placeholder="${esc(ph)}" `:'')+
-      `oninput="cpEdit('${kind}',${ri},'${f}',this.value)"></td>`;
-  }).join('')+'</tr>').join('');
+  const g=GRIDS[kind];
+  g.colFilter=g.colFilter||{};
+  g.selected=g.selected||new Set();
+  g.domOffset=1;   // checkbox column sits at DOM child 0; data cols start at 1
+
+  const asinChoices=g.asinChoices||[];
+
+  // Header row: sticky select-all checkbox + per-column headers with bulk-edit rows
+  const chkTh=`<th class="cp-chk-col cp-sticky-l" style="z-index:3;background:hsl(var(--muted))"><input type="checkbox" class="cp-selall" title="Select all" onchange="cpSelAll('${kind}',this)"></th>`;
+  const colThs=g.cols.map((c,ci)=>{
+    const [f,l,type]=c;
+    const isEdit=(type==='edit'||type==='select_asin');
+    let bulkRow='';
+    if(isEdit&&f){
+      const bid=`cpBulk_${kind}_${ci}`;
+      let bulkInp='';
+      if(type==='select_asin'){
+        bulkInp=`<select class="cp-bulk-input" id="${bid}"><option value="">—</option>`+
+          asinChoices.map(a=>`<option value="${esc(a.asin)}">${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,22)):''}</option>`).join('')+`</select>`;
+      } else {
+        bulkInp=`<input class="cp-bulk-input" id="${bid}" placeholder="bulk value…">`;
+      }
+      bulkRow=`<div class="cp-bulk-row">${bulkInp}<button class="cp-bulk-apply" onclick="cpApplyBulk('${kind}','${f}',document.getElementById('${bid}').value)">Apply</button></div>`;
+    }
+    return `<th class="${type==='f'?'cp-fcol':''}">`+
+      `<div class="cp-th"><span>${esc(l)}</span>`+
+      `<button class="cp-filtbtn" data-ci="${ci}" onclick="cpOpenFilter('${kind}',${ci},this)" title="Sort & filter">▾</button>`+
+      `</div>${bulkRow}</th>`;
+  }).join('');
+  const head=`<tr>${chkTh}${colThs}</tr>`;
+
+  // Body rows: sticky checkbox + data cells
+  const body=g.rows.map((row,ri)=>{
+    const chkTd=`<td class="cp-chk-col cp-sticky-l"><input type="checkbox" class="cp-rowchk" onchange="cpSelRow('${kind}',${ri},this)"></td>`;
+    const cells=g.cols.map(c=>{
+      const [f,l,type,phf]=c;
+      if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
+      const v=(f&&row[f]!=null)?row[f]:'';
+      if(type==='ro') return `<td class="cp-ro num">${esc(v)}</td>`;
+      if(type==='select_asin'){
+        const opts=`<option value="">—</option>`+asinChoices.map(a=>
+          `<option value="${esc(a.asin)}"${String(v)===a.asin?' selected':''}>${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,28)):''}</option>`
+        ).join('');
+        return `<td class="cp-edit"><select class="cp-asinsel" onchange="cpEdit('${kind}',${ri},'${f}',this.value)">${opts}</select></td>`;
+      }
+      const ph=phf?(row[phf]||''):'';
+      const isKw=(f==='keyword');
+      const wAttr=isKw?` style="width:${Math.max(20,String(v).length+2)}ch"`:'';
+      const onInp=isKw
+        ?`oninput="cpEdit('${kind}',${ri},'${f}',this.value);this.style.width=(Math.max(20,this.value.length+2))+'ch'"`
+        :`oninput="cpEdit('${kind}',${ri},'${f}',this.value)"`;
+      return `<td class="cp-edit${isKw?' cp-kw-cell':''}">`+
+        `<input class="cp-cellinput"${wAttr} value="${esc(v)}" `+
+        (ph?`placeholder="${esc(ph)}" `:'')+
+        `${onInp}></td>`;
+    }).join('');
+    return `<tr data-ri="${ri}">${chkTd}${cells}</tr>`;
+  }).join('');
+
   return `<div class="cp-tablewrap"><table class="cp-grid" data-kind="${kind}"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
+function cpSelAll(kind,el){
+  const g=GRIDS[kind]; g.selected=new Set();
+  if(el.checked) g.rows.forEach((_,i)=>g.selected.add(i));
+  document.querySelectorAll(`#${g.host} tr[data-ri] .cp-rowchk`).forEach(cb=>cb.checked=el.checked);
+}
+function cpSelRow(kind,ri,el){
+  const g=GRIDS[kind];
+  if(el.checked) g.selected.add(ri); else g.selected.delete(ri);
+  const sa=document.querySelector(`#${g.host} .cp-selall`);
+  if(sa){ sa.checked=g.selected.size===g.rows.length&&g.rows.length>0;
+    sa.indeterminate=g.selected.size>0&&g.selected.size<g.rows.length; }
+}
+function cpApplyBulk(kind,field,val){
+  const g=GRIDS[kind];
+  if(!g.selected.size){toast('Select rows first','error');return;}
+  g.selected.forEach(ri=>{
+    (g.edits[ri]=g.edits[ri]||{})[field]=val;
+    const tr=document.querySelector(`#${g.host} tr[data-ri="${ri}"]`);
+    if(tr){
+      const ci=g.cols.findIndex(c=>c[0]===field);
+      if(ci>=0){
+        const cell=tr.children[ci+(g.domOffset||0)];
+        if(cell){
+          const inp=cell.querySelector('input.cp-cellinput,select.cp-asinsel');
+          if(inp){ inp.value=val;
+            if(field==='keyword') inp.style.width=(Math.max(20,val.length+2))+'ch'; }
+        }
+      }
+    }
+  });
+  g.dirty=true;
+  const b=document.getElementById(kind+'SaveBtn');if(b)b.textContent='Save edits *';
+  toast(`Applied to ${g.selected.size} row(s)`,'success');
+}
 
 // ---- Excel-style autofilter (sort + value checklist per column) ----------
-function cpCellVal(tr,ci){ const cell=tr.children[ci]; if(!cell) return '';
-  const inp=cell.querySelector('input,select'); return (inp?inp.value:cell.textContent).trim(); }
+function cpCellVal(tr,ci,kind){
+  const off=kind&&GRIDS[kind]?(GRIDS[kind].domOffset||0):0;
+  const cell=tr.children[ci+off]; if(!cell) return '';
+  const inp=cell.querySelector('input[type!="checkbox"],select');
+  return (inp?inp.value:cell.textContent).trim();
+}
 function cpCloseFilter(){ const p=document.getElementById('cpPop'); if(p) p.remove(); }
 function cpOpenFilter(kind,ci,btn){
   cpCloseFilter();
   const g=GRIDS[kind];
   const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
   const trs=[...tbody.querySelectorAll('tr')];
-  const distinct=[...new Set(trs.map(tr=>cpCellVal(tr,ci)))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+  const distinct=[...new Set(trs.map(tr=>cpCellVal(tr,ci,kind)))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
   const active=g.colFilter[ci];   // Set or undefined (=all)
   const pop=document.createElement('div'); pop.className='cp-pop'; pop.id='cpPop';
   pop.innerHTML=
@@ -700,14 +802,14 @@ function cpApplyVisibility(kind){ const g=GRIDS[kind];
   const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
   tbody.querySelectorAll('tr').forEach(tr=>{
     let show=true;
-    for(const ci in g.colFilter){ if(!g.colFilter[ci].has(cpCellVal(tr,+ci))){ show=false; break; } }
+    for(const ci in g.colFilter){ if(!g.colFilter[ci].has(cpCellVal(tr,+ci,kind))){ show=false; break; } }
     tr.style.display=show?'':'none';
   });
 }
 function cpSort(kind,ci,dir){ const g=GRIDS[kind];
   const tbody=document.querySelector(`#${g.host} table.cp-grid tbody`); if(!tbody) return;
   const trs=[...tbody.querySelectorAll('tr')];
-  trs.sort((a,b)=>dir*cpCellVal(a,ci).localeCompare(cpCellVal(b,ci),undefined,{numeric:true}));
+  trs.sort((a,b)=>dir*cpCellVal(a,ci,kind).localeCompare(cpCellVal(b,ci,kind),undefined,{numeric:true}));
   trs.forEach(tr=>tbody.appendChild(tr));   // reattach in order (keeps inputs + data-ri)
   cpCloseFilter();
 }
@@ -736,14 +838,13 @@ function renderSemantics(){
       [null,'CPC','f'],
       [null,'ACoS','f'],
       [null,'Conversion Rate','f'],
-      ['organic_rank','Organic Rank','edit'],
-      ['impression_share','Impression Share','edit'],
       ['ctr','CTR','edit'],
       ['category','Root KW','edit'],
       ['disp_kw_type','KW Vol.','edit','_auto_kw_type'],
       ['disp_match','Match Type','edit','_auto_match'],
       ['disp_broad','Broad KW List','edit'],
       ['product','Product Name','edit'],
+      ['product_asin','Product ASIN','select_asin'],
       [null,'Campaign Name','f'],
       ['placement_mod','Placement Mod.','edit'],
       ['asp','ASP','edit'],
@@ -752,9 +853,10 @@ function renderSemantics(){
     ],
     rows:ASM.semantics||[], edits:{},
     saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
+    asinChoices:(ASM.products||[]),
   };
   document.getElementById('asmHost').innerHTML=
-    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas that compute when you open the workbook · faint text in KW Vol./Match = the SV-rule suggestion</p>`+
+    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint text in KW Vol./Match = the SV-rule suggestion · check rows then use column header inputs to bulk-edit</p>`+
     editableGrid('sem');
 }
 function renderMaster(){

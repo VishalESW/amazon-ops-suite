@@ -347,6 +347,12 @@ def asin_table(pid, filekey):
     grid = cstore.load_parsed(pid, filekey)
     if grid is None:
         abort(404)
+
+    # Product name lookup from ASIN dashboard state
+    asin_state = cdb.get_state(pid, "asins") or {}
+    products_all = asin_state.get("products") or []
+    name_by_asin = {p["asin"]: p.get("name", "") for p in products_all}
+
     kc = grid.get("keyword_col")
     seen, out = set(), []
     for row in grid["rows"]:
@@ -363,9 +369,40 @@ def asin_table(pid, filekey):
                 continue
             seen.add(asin)
             out.append({"asin": asin, "context": str(ctx)[:60],
-                        "col": grid["columns"][ci] if ci < len(grid["columns"]) else ""})
+                        "col": grid["columns"][ci] if ci < len(grid["columns"]) else "",
+                        "product_name": name_by_asin.get(asin, "")})
+
+    # Auto-detect a PAT-type selection column (any column whose values match the tag names)
+    pat_tags_lower = {t.lower(): t for t in PAT_TAGS}
+    auto_tags = {}
+    for col_ci, _col_name in enumerate(grid["columns"]):
+        matches = sum(
+            1 for row in grid["rows"]
+            if col_ci < len(row) and str(row[col_ci] or "").strip().lower() in pat_tags_lower
+        )
+        if matches == 0:
+            continue
+        # Use the first column that has matching values
+        for row in grid["rows"]:
+            if col_ci >= len(row):
+                continue
+            tag_val = str(row[col_ci] or "").strip().lower()
+            if tag_val not in pat_tags_lower:
+                continue
+            for ac in grid.get("asin_cols", []):
+                if ac >= len(row):
+                    continue
+                m = orch._ASIN_RE.search(str(row[ac] or "").strip())
+                if m:
+                    auto_tags[m.group(0).upper()] = pat_tags_lower[tag_val]
+        break  # stop after first matching column
+
+    # Saved tags take precedence over auto-detected ones
+    saved_tags = cdb.get_state(pid, "asin_tags", {})
+    merged_tags = {**auto_tags, **saved_tags}
+
     return jsonify({"success": True, "asins": out,
-                    "tags": cdb.get_state(pid, "asin_tags", {}), "pat_tags": PAT_TAGS})
+                    "tags": merged_tags, "pat_tags": PAT_TAGS})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["POST"])
@@ -393,18 +430,20 @@ def assemble_preview(pid):
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
+    # ASIN dashboard products for the Product ASIN dropdown
+    products = [{"asin": pr["asin"], "name": pr.get("name", ""), "sku": pr.get("sku", "")}
+                for pr in inp.products]
     # Full Semantics sheet (every column A-T), one dict per row.
     semantics = [{
         "keyword": s.get("keyword", ""), "source": s.get("source", ""),
         "sv": s.get("sv", 0),                       # C  Search Volume (read-only)
-        "organic_rank": s.get("organic_rank", ""),  # H
-        "impression_share": s.get("impression_share", ""),  # I
         "ctr": s.get("ctr", ""),                    # J
         "category": s.get("category", ""),          # K  Root KW
         "disp_kw_type": s.get("disp_kw_type", ""),  # L
         "disp_match": s.get("disp_match", ""),      # M
         "disp_broad": s.get("disp_broad", ""),      # N
         "product": s.get("product", ""),            # O
+        "product_asin": s.get("product_asin", ""),  # O+
         "placement_mod": s.get("placement_mod", ""),# Q
         "asp": s.get("asp", ""),                    # R
         "acos_target": s.get("acos_target", ""),    # S
@@ -420,6 +459,7 @@ def assemble_preview(pid):
             "product": t.get("product", ""), "asp": t.get("asp", ""),
             "acos": t.get("acos", "")} for t in inp.pat_targets]
     return jsonify({"success": True, "meta": meta, "semantics": semantics,
+                    "products": products,
                     "sem_columns": cb.SEM_EDITABLE, "pat_columns": cb.PAT_EDITABLE,
                     "campaigns": campaigns, "master": master, "pat": pat})
 
