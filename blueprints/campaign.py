@@ -401,8 +401,15 @@ def asin_table(pid, filekey):
     saved_tags = cdb.get_state(pid, "asin_tags", {})
     merged_tags = {**auto_tags, **saved_tags}
 
+    full_rows = grid["rows"][:ROW_CAP]
     return jsonify({"success": True, "asins": out,
-                    "tags": merged_tags, "pat_tags": PAT_TAGS})
+                    "tags": merged_tags, "pat_tags": PAT_TAGS,
+                    "columns": grid["columns"],
+                    "rows": full_rows,
+                    "asin_cols": grid.get("asin_cols", []),
+                    "name_by_asin": name_by_asin,
+                    "total": len(grid["rows"]),
+                    "truncated": len(grid["rows"]) > ROW_CAP})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["POST"])
