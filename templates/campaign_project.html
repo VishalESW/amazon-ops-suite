@@ -234,31 +234,41 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
 
     {% elif cur == 'uploads' %}
     <section class="cp-card p-5">
-      <h2 class="text-lg font-semibold">Upload research files</h2>
-      <p class="text-sm text-muted-foreground mb-4">Upload the raw exports. Headers are auto-detected — the control-panel preamble is stripped automatically. You can re-upload to add more.</p>
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div><label class="block text-sm font-medium mb-1">Product Opportunity Explorer <span class="text-muted-foreground">(one per product; filename = product)</span></label>
-          <input type="file" name="poe_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div><label class="block text-sm font-medium mb-1">H10 Reverse ASIN</label>
-          <input type="file" name="h10_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div><label class="block text-sm font-medium mb-1">Brand Analytics (w/ Reverse ASIN)</label>
-          <input type="file" name="brand_analytics_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div><label class="block text-sm font-medium mb-1">SQP Reports <span class="text-muted-foreground">(≤3; filename = ASIN)</span></label>
-          <input type="file" name="sqp_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div><label class="block text-sm font-medium mb-1">Brand (H10 Reverse ASIN)</label>
-          <input type="file" name="brand_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div><label class="block text-sm font-medium mb-1">BA TST files <span class="text-muted-foreground">(filename = filter word)</span></label>
-          <input type="file" name="ba_tst_files" multiple accept=".csv,.xlsx,.xls" class="cp-file"></div>
-        <div class="sm:col-span-2"><label class="block text-sm font-medium mb-1">Search Term Report <span class="text-muted-foreground">(optional — enables Sales/Orders/ACoS)</span></label>
-          <input type="file" name="str_file" accept=".csv,.xlsx,.xls" class="cp-file"></div>
+      <h2 class="text-lg font-semibold">Upload research workbook</h2>
+      <p class="text-sm text-muted-foreground mb-4">Upload a single <strong>.xlsx</strong> file containing all your research sheets. Each sheet is auto-detected by name and headers — POE, H10, BA, SQP, Brand, BA TST, Search Term Report.</p>
+
+      <div id="wbDropzone" onclick="document.getElementById('wbFile').click()"
+           class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-lg p-10 cursor-pointer hover:bg-accent/40 transition select-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+        </svg>
+        <p class="text-sm font-medium text-foreground">Click to select workbook</p>
+        <p class="text-xs text-muted-foreground">Single .xlsx or .xls — one sheet per data source</p>
+        <input type="file" id="wbFile" accept=".xlsx,.xls" class="hidden" onchange="uploadWorkbook(this)">
       </div>
-      <div class="mt-4 flex items-center gap-2">
-        <button onclick="uploadFiles()" id="upBtn" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Upload files</button>
-        <span id="upMsg" class="text-xs text-muted-foreground"></span>
+      <div id="wbMsg" class="mt-2 text-xs text-muted-foreground text-center hidden"></div>
+
+      <div id="wbSummary" class="mt-5 hidden">
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Detected sheets</h3>
+        <div class="rounded-md border border-border overflow-x-auto">
+          <table class="w-full text-sm" id="wbSummaryTable">
+            <thead class="bg-muted text-xs text-muted-foreground uppercase">
+              <tr>
+                <th class="px-3 py-2 text-left">Sheet</th>
+                <th class="px-3 py-2 text-left">Detected as</th>
+                <th class="px-3 py-2 text-right">Rows</th>
+                <th class="px-3 py-2 text-center">Keywords</th>
+                <th class="px-3 py-2 text-center">ASINs</th>
+                <th class="px-3 py-2 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="wbSummaryBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="mt-6">
-        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Uploaded</h3>
+        <h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">Imported sheets</h3>
         <div id="upList" class="space-y-1.5"><p class="text-sm text-muted-foreground">None yet.</p></div>
       </div>
 
@@ -410,21 +420,46 @@ async function approveSeed(key){
 }
 // ---- Uploads ----
 if(STEP==='uploads') refreshUploads();
-async function uploadFiles(){
-  const fd=new FormData();
-  let any=false;
-  document.querySelectorAll('input.cp-file').forEach(inp=>{
-    for(const f of inp.files){ fd.append(inp.name, f); any=true; } });
-  if(!any){ toast('Choose at least one file','error'); return; }
-  const btn=document.getElementById('upBtn'); btn.disabled=true; btn.textContent='Uploading…';
-  document.getElementById('upMsg').textContent='Parsing uploads…';
+
+const SOURCE_LABELS={poe:'POE',h10:'H10',ba:'Brand Analytics',sqp:'SQP',brand:'Brand',batst:'BA TST',str:'Search Term Report'};
+async function uploadWorkbook(input){
+  const file=input.files[0]; if(!file) return;
+  const dropzone=document.getElementById('wbDropzone');
+  const msg=document.getElementById('wbMsg');
+  dropzone.style.opacity='0.5'; dropzone.style.pointerEvents='none';
+  msg.textContent=`Uploading ${file.name}…`; msg.classList.remove('hidden');
+  const fd=new FormData(); fd.append('workbook', file);
   try{
-    const r=await fetch(`/campaign/projects/${PID}/uploads`,{method:'POST',body:fd}).then(r=>r.json());
-    if(r.success){ toast(`${r.added} file(s) uploaded`,'success'); renderUploads(r.uploads);
-      document.querySelectorAll('input.cp-file').forEach(i=>i.value=''); }
-    else toast(r.error||'Upload failed','error');
+    const r=await fetch(`/campaign/projects/${PID}/upload-workbook`,{method:'POST',body:fd}).then(r=>r.json());
+    if(r.success){
+      renderWorkbookSummary(r.summary);
+      renderUploads(r.uploads);
+      toast(r.added>0?`${r.added} sheet(s) imported`:'No recognised sheets found',r.added>0?'success':'error');
+    } else { toast(r.error||'Upload failed','error'); }
   }catch(e){ toast('Network error: '+(e.message||e),'error'); }
-  finally{ btn.disabled=false; btn.textContent='Upload files'; document.getElementById('upMsg').textContent=''; }
+  finally{
+    dropzone.style.opacity=''; dropzone.style.pointerEvents='';
+    msg.classList.add('hidden'); input.value='';
+  }
+}
+function renderWorkbookSummary(summary){
+  if(!summary||!summary.length) return;
+  const tbody=document.getElementById('wbSummaryBody');
+  const statusBadge=s=>{
+    if(s.status==='ok')           return `<span class="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">✓ Imported</span>`;
+    if(s.status==='unrecognized') return `<span class="inline-flex items-center gap-1 text-xs font-medium text-amber-600">⚠ Unrecognised</span>`;
+    return `<span class="inline-flex items-center gap-1 text-xs font-medium text-red-600" title="${esc(s.error||'')}">✕ Error</span>`;
+  };
+  tbody.innerHTML=summary.map(s=>`
+    <tr class="border-t border-border hover:bg-muted/30">
+      <td class="px-3 py-2 font-medium">${esc(s.sheet)}</td>
+      <td class="px-3 py-2">${s.source?`<span class="cp-badge">${esc(SOURCE_LABELS[s.source]||s.source)}</span>`:'<span class="text-muted-foreground text-xs">—</span>'}</td>
+      <td class="px-3 py-2 text-right tabular-nums">${s.rows!=null?s.rows:'—'}</td>
+      <td class="px-3 py-2 text-center">${s.has_keywords?'<span class="text-emerald-600 text-sm">✓</span>':'<span class="text-muted-foreground text-xs">—</span>'}</td>
+      <td class="px-3 py-2 text-center">${s.has_asins?'<span class="text-emerald-600 text-sm">✓</span>':'<span class="text-muted-foreground text-xs">—</span>'}</td>
+      <td class="px-3 py-2 text-center">${statusBadge(s)}</td>
+    </tr>`).join('');
+  document.getElementById('wbSummary').classList.remove('hidden');
 }
 async function refreshUploads(){
   try{ const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
@@ -437,7 +472,7 @@ function renderUploads(uploads){
   host.innerHTML=uploads.map(u=>`
     <div class="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
       <div class="min-w-0">
-        <span class="cp-badge mr-2">${esc(u.source)}</span>
+        <span class="cp-badge mr-2">${esc(SOURCE_LABELS[u.source]||u.source)}</span>
         <span class="text-sm font-medium">${esc(u.label)}</span>
         <span class="text-xs text-muted-foreground">· ${esc(u.filename)} · ${u.rowcount} rows</span>
       </div>

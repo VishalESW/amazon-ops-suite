@@ -11,12 +11,15 @@ This file owns routing + per-step state; heavy lifting lives in:
   utils.campaign_orchestrator / campaign_ai — selection + build helpers
 """
 
+import io
 import os
 import traceback
 import uuid
 
+import pandas as pd
 from flask import (Blueprint, render_template, request, jsonify, redirect,
                    url_for, g, abort)
+from werkzeug.datastructures import FileStorage
 
 from config import cfg
 from utils import campaign_db as cdb
@@ -294,6 +297,80 @@ def post_uploads(pid):
             added += 1
     cdb.save_state(pid, "uploads", uploads)
     return jsonify({"success": True, "added": added, "uploads": uploads})
+
+
+@bp.route("/projects/<pid>/upload-workbook", methods=["POST"])
+def upload_workbook(pid):
+    """Accept a single multi-sheet Excel workbook and auto-detect each sheet's source."""
+    if not cdb.get_project(pid):
+        abort(404)
+    fs = request.files.get("workbook")
+    if not fs or not getattr(fs, "filename", ""):
+        return jsonify({"success": False, "error": "No file provided"}), 400
+    if not fs.filename.lower().endswith((".xlsx", ".xls")):
+        return jsonify({"success": False, "error": "Only .xlsx / .xls files are supported"}), 400
+
+    raw = fs.read()
+    try:
+        xf = pd.ExcelFile(io.BytesIO(raw))
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Cannot read workbook: {e}"}), 400
+
+    uploads = cdb.get_state(pid, "uploads", [])
+    added, summary = 0, []
+
+    for sheet_name in xf.sheet_names:
+        try:
+            raw_df = xf.parse(sheet_name, header=None, dtype=object).fillna("")
+        except Exception as e:
+            summary.append({"sheet": sheet_name, "source": None, "status": "error",
+                            "error": str(e)})
+            continue
+
+        source = orch.detect_source_from_sheet(sheet_name, raw_df)
+        if not source:
+            summary.append({"sheet": sheet_name, "source": None, "status": "unrecognized",
+                            "rows": len(raw_df), "cols": len(raw_df.columns)})
+            continue
+
+        has_grid = source != "str"
+        try:
+            grid = orch.parse_upload(None, source, raw_df=raw_df)
+        except Exception as e:
+            traceback.print_exc()
+            summary.append({"sheet": sheet_name, "source": source, "status": "error",
+                            "error": str(e)})
+            continue
+
+        # Store each sheet as its own raw xlsx so the existing _fs() pipeline works.
+        filekey = uuid.uuid4().hex
+        bio = io.BytesIO()
+        raw_df.to_excel(bio, index=False, header=False, engine="openpyxl")
+        bio.seek(0)
+        cstore.save_raw(pid, filekey,
+                        FileStorage(stream=bio, filename=f"{sheet_name}.xlsx"))
+        cstore.save_parsed(pid, filekey, grid)
+
+        label = _label_for(source, sheet_name)
+        uploads.append({
+            "filekey": filekey, "source": source, "field": source,
+            "filename": f"{sheet_name} [{fs.filename}]",
+            "label": label,
+            "rowcount": len(grid["rows"]), "cols": len(grid["columns"]),
+            "keyword_col": grid["keyword_col"],
+            "asin_cols": grid["asin_cols"], "has_grid": has_grid,
+        })
+        summary.append({
+            "sheet": sheet_name, "source": source, "label": label,
+            "rows": len(grid["rows"]), "cols": len(grid["columns"]),
+            "has_keywords": grid["keyword_col"] is not None,
+            "has_asins": bool(grid["asin_cols"]),
+            "status": "ok",
+        })
+        added += 1
+
+    cdb.save_state(pid, "uploads", uploads)
+    return jsonify({"success": True, "added": added, "summary": summary, "uploads": uploads})
 
 
 @bp.route("/projects/<pid>/uploads/<filekey>/delete", methods=["POST"])

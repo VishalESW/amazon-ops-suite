@@ -55,6 +55,61 @@ SOURCE_TOKENS = {
     "str": ("search term", "spend", "acos"),
 }
 
+# Ordered list of (sheet-name-fragment, source) — first match wins.
+# More-specific fragments come before ambiguous ones (e.g. "brand analytics" before "brand").
+_SHEET_NAME_SOURCE = [
+    ("product opportunity explorer", "poe"),
+    ("poe", "poe"),
+    ("brand analytics", "ba"),
+    ("brand_analytics", "ba"),
+    ("search term report", "str"),
+    ("search query performance", "sqp"),
+    ("search query", "sqp"),
+    ("ba tst", "batst"),
+    ("batst", "batst"),
+    ("sqp", "sqp"),
+    ("h10 reverse", "h10"),
+    ("reverse asin", "h10"),
+    ("helium 10", "h10"),
+    ("h10", "h10"),
+    ("brand", "brand"),
+    ("str", "str"),
+]
+
+
+def detect_source_from_sheet(sheet_name: str, raw_df: "pd.DataFrame") -> "str | None":
+    """Identify the source type of an Excel sheet by name then by header tokens."""
+    key = sheet_name.strip().lower()
+    for fragment, src in _SHEET_NAME_SOURCE:
+        if fragment in key:
+            return src
+    if raw_df is None or raw_df.empty:
+        return None
+    best_src, best_score = None, 1  # require at least 2 matching tokens
+    n = min(35, len(raw_df))
+    for src, tokens in SOURCE_TOKENS.items():
+        for i in range(n):
+            cells = [str(x).strip().lower() for x in raw_df.iloc[i].tolist()]
+            score = sum(1 for t in tokens if any(t in c for c in cells))
+            if score > best_score:
+                best_score = score
+                best_src = src
+    return best_src
+
+
+def _apply_table_smart(full_df: "pd.DataFrame", source: str) -> "pd.DataFrame":
+    """Apply header detection + normalisation to an already-read raw DataFrame."""
+    full = full_df.copy().fillna("")
+    if full.empty:
+        return pd.DataFrame()
+    tokens = SOURCE_TOKENS.get(source, ())
+    hdr = _detect_header_row(full, tokens) if tokens else 0
+    if hdr is None:
+        hdr = 0
+    header = _dedupe_headers(full.iloc[hdr].tolist())
+    data = full.iloc[hdr + 1:].reset_index(drop=True)
+    return pd.DataFrame(data.values, columns=header).fillna("")
+
 
 def _dedupe_headers(headers):
     seen, out = {}, []
@@ -262,13 +317,17 @@ def _extract(df, source):
 _KW_TOKENS = ("search term", "keyword phrase", "search query", "keyword")
 
 
-def parse_upload(file_storage, source):
+def parse_upload(file_storage, source, raw_df=None):
     """Smart-read a raw export into a grid table for the selection UI.
 
     Returns {columns, rows, keyword_col, asin_cols, brand_cols} where *_col(s)
     are 0-based indices into columns. Preamble is auto-stripped (read_table_smart).
+    raw_df: if given, uses this already-read DataFrame instead of reading file_storage.
     """
-    df = read_table_smart(file_storage, source)
+    if raw_df is not None:
+        df = _apply_table_smart(raw_df, source)
+    else:
+        df = read_table_smart(file_storage, source)
     if df is None or df.empty:
         return {"columns": [], "rows": [], "keyword_col": None,
                 "asin_cols": [], "brand_cols": []}
