@@ -485,7 +485,7 @@ async function delUpload(filekey){
 }
 
 // ---- Keyword selection grids ----
-let KW_UP=[], KW_CUR=null, KW_DATA=null, KW_SEL={}, KW_CHECK=new Set();
+let KW_UP=[], KW_CUR=null, KW_DATA=null, KW_SEL={}, KW_CHECK=new Set(), KW_LAST_CHK=null;
 if(STEP==='keywords') initKw();
 async function initKw(){
   const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
@@ -512,7 +512,7 @@ async function openKwFile(i){
   document.getElementById('kwHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
   const r=await fetch(`/campaign/projects/${PID}/table/${KW_CUR.filekey}`).then(r=>r.json());
   if(!r.success){ document.getElementById('kwHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load table</p>'; return; }
-  KW_DATA=r; KW_SEL=r.selections||{}; KW_CHECK=new Set();
+  KW_DATA=r; KW_SEL=r.selections||{}; KW_CHECK=new Set(); KW_LAST_CHK=null;
   if(KW_DATA.keyword_col==null) KW_DATA.keyword_col=kcFallback(KW_DATA.columns);
   renderGrid();
 }
@@ -540,7 +540,7 @@ function renderGrid(){
   let body='';
   visible.forEach(ri=>{
     const row=KW_DATA.rows[ri], tag=KW_SEL[ri]||'';
-    let tds=`<td class="cp-sticky-l"><input type="checkbox" data-ri="${ri}" ${KW_CHECK.has(ri)?'checked':''} onchange="toggleKwCheck(${ri},this)"></td>`;
+    let tds=`<td class="cp-sticky-l"><input type="checkbox" data-ri="${ri}" ${KW_CHECK.has(ri)?'checked':''} onclick="toggleKwCheck(${ri},this,event)"></td>`;
     tds+=`<td class="num">${ri+1}</td>`;
     row.forEach((v,ci)=>{ tds+=`<td class="${ci===kc?'cp-kwcol':''}">${esc((v==null?'':v).toString().slice(0,80))}</td>`;
       if(ci===kc) tds+=`<td class="cp-kwcol">${tagSelect(ri,tag)}</td>`; });
@@ -557,8 +557,22 @@ function tagSelect(ri,tag){
 }
 function setTag(ri,el){ const v=el.value; if(v) KW_SEL[ri]=v; else delete KW_SEL[ri];
   el.className='cp-tagsel cp-tag-'+v; updateCounts(); }
-function toggleKwCheck(ri,el){ if(el.checked) KW_CHECK.add(ri); else KW_CHECK.delete(ri);
-  const all=document.getElementById('kwAll'); if(all){ const v=kwFiltered(); all.checked=v.length>0&&v.every(i=>KW_CHECK.has(i)); } }
+function toggleKwCheck(ri,el,event){
+  if(event&&event.shiftKey&&KW_LAST_CHK!==null){
+    const vis=kwFiltered(),a=vis.indexOf(KW_LAST_CHK),b=vis.indexOf(ri);
+    if(a!==-1&&b!==-1){
+      const lo=Math.min(a,b),hi=Math.max(a,b),st=el.checked;
+      vis.slice(lo,hi+1).forEach(idx=>{
+        if(st) KW_CHECK.add(idx); else KW_CHECK.delete(idx);
+        const cb=document.querySelector(`#kwHost input[data-ri="${idx}"]`);
+        if(cb) cb.checked=st;
+      });
+    }
+  } else { if(el.checked) KW_CHECK.add(ri); else KW_CHECK.delete(ri); }
+  KW_LAST_CHK=ri;
+  const all=document.getElementById('kwAll');
+  if(all){ const v=kwFiltered(); all.checked=v.length>0&&v.every(i=>KW_CHECK.has(i)); all.indeterminate=v.some(i=>KW_CHECK.has(i))&&!all.checked; }
+}
 function toggleKwAll(el){ const v=kwFiltered();
   if(el.checked) v.forEach(ri=>KW_CHECK.add(ri)); else v.forEach(ri=>KW_CHECK.delete(ri));
   document.querySelectorAll('#kwHost input[data-ri]').forEach(cb=>cb.checked=el.checked); }
@@ -589,7 +603,7 @@ async function saveKw(){
 }
 
 // ---- ASIN selection (PAT) ----
-let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={}, AS_SEL=new Set();
+let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK_RI=null;
 const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
 if(STEP==='asin_sel') initAsin();
 async function initAsin(){
@@ -606,7 +620,7 @@ async function openAsinFile(i){
   document.getElementById('asHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
   const r=await fetch(`/campaign/projects/${PID}/asin-table/${AS_CUR.filekey}`).then(r=>r.json());
   if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load</p>'; return; }
-  AS_DATA=r; AS_TAGS=Object.assign(AS_TAGS, r.tags||{});
+  AS_DATA=r; AS_TAGS=Object.assign(AS_TAGS, r.tags||{}); AS_LAST_CHK_RI=null;
   renderAsinGrid();
 }
 const _ASIN_RE_JS=/\bB0[A-Z0-9]{8}\b/i;
@@ -646,7 +660,7 @@ function renderAsinGrid(){
     const asins=_rowAsins(row);
     const rowSel=asins.length>0&&asins.every(a=>AS_SEL.has(a));
     const asinsAttr=asins.map(a=>a.replace(/'/g,'')).join(',');
-    let tds=`<td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="as-rowchk" data-asins="${asinsAttr}" ${rowSel?'checked':''} onchange="asSelRow(this)"> <span class="text-muted-foreground" style="font-size:.72rem;font-variant-numeric:tabular-nums">${ri+1}</span></td>`;
+    let tds=`<td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="as-rowchk" data-asins="${asinsAttr}" ${rowSel?'checked':''} onclick="asSelRow(this,event)"> <span class="text-muted-foreground" style="font-size:.72rem;font-variant-numeric:tabular-nums">${ri+1}</span></td>`;
     row.forEach((v,ci)=>{
       const isAsin=asinColSet.has(ci);
       const vStr=(v==null?'':String(v));
@@ -679,9 +693,26 @@ function asToggleAll(el){
   if(el.checked&&AS_DATA) AS_DATA.rows.forEach(r=>_rowAsins(r).forEach(a=>AS_SEL.add(a)));
   document.querySelectorAll('#asHost .as-rowchk').forEach(cb=>cb.checked=el.checked);
 }
-function asSelRow(el){
-  const asins=(el.dataset.asins||'').split(',').filter(Boolean);
-  if(el.checked) asins.forEach(a=>AS_SEL.add(a)); else asins.forEach(a=>AS_SEL.delete(a));
+function asSelRow(el,event){
+  const thisAsins=(el.dataset.asins||'').split(',').filter(Boolean), st=el.checked;
+  const thisTr=el.closest('tr'), thisRi=thisTr?+thisTr.dataset.ri:null;
+  if(event&&event.shiftKey&&AS_LAST_CHK_RI!==null&&thisRi!==null){
+    const visTrs=[...document.querySelectorAll('#asHost tr[data-ri]')].filter(r=>r.style.display!=='none');
+    const riList=visTrs.map(r=>+r.dataset.ri);
+    const posA=riList.indexOf(AS_LAST_CHK_RI),posB=riList.indexOf(thisRi);
+    if(posA!==-1&&posB!==-1){
+      const lo=Math.min(posA,posB),hi=Math.max(posA,posB);
+      riList.slice(lo,hi+1).forEach(idx=>{
+        const rowEl=document.querySelector(`#asHost tr[data-ri="${idx}"]`);
+        if(!rowEl) return;
+        const cb=rowEl.querySelector('.as-rowchk'); if(!cb) return;
+        cb.checked=st;
+        (cb.dataset.asins||'').split(',').filter(Boolean).forEach(asin=>{ if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); });
+      });
+    }
+  } else { thisAsins.forEach(asin=>{ if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); }); }
+  if(thisRi!==null) AS_LAST_CHK_RI=thisRi;
+  updateAsinCounts();
   const sa=document.getElementById('asSelAll');
   if(sa){const t=_totalUniqueAsins(); sa.checked=AS_SEL.size>=t&&t>0; sa.indeterminate=AS_SEL.size>0&&AS_SEL.size<t;}
 }
@@ -778,7 +809,7 @@ function editableGrid(kind){
 
   // Body rows: sticky checkbox + data cells
   const body=g.rows.map((row,ri)=>{
-    const chkTd=`<td class="cp-chk-col cp-sticky-l"><input type="checkbox" class="cp-rowchk" onchange="cpSelRow('${kind}',${ri},this)"></td>`;
+    const chkTd=`<td class="cp-chk-col cp-sticky-l"><input type="checkbox" class="cp-rowchk" onclick="cpSelRow('${kind}',${ri},this,event)"></td>`;
     const cells=g.cols.map(c=>{
       const [f,l,type,phf]=c;
       if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
@@ -814,9 +845,22 @@ function cpSelAll(kind,el){
   if(el.checked) g.rows.forEach((_,i)=>g.selected.add(i));
   document.querySelectorAll(`#${g.host} tr[data-ri] .cp-rowchk`).forEach(cb=>cb.checked=el.checked);
 }
-function cpSelRow(kind,ri,el){
-  const g=GRIDS[kind];
-  if(el.checked) g.selected.add(ri); else g.selected.delete(ri);
+function cpSelRow(kind,ri,el,event){
+  const g=GRIDS[kind], st=el.checked;
+  if(event&&event.shiftKey&&g._lastSel!=null){
+    const trs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
+    const riList=trs.map(tr=>+tr.dataset.ri);
+    const posA=riList.indexOf(g._lastSel),posB=riList.indexOf(ri);
+    if(posA!==-1&&posB!==-1){
+      const lo=Math.min(posA,posB),hi=Math.max(posA,posB);
+      riList.slice(lo,hi+1).forEach(idx=>{
+        if(st) g.selected.add(idx); else g.selected.delete(idx);
+        const tr=document.querySelector(`#${g.host} tr[data-ri="${idx}"]`);
+        if(tr){const cb=tr.querySelector('.cp-rowchk'); if(cb) cb.checked=st;}
+      });
+    }
+  } else { if(st) g.selected.add(ri); else g.selected.delete(ri); }
+  g._lastSel=ri;
   const sa=document.querySelector(`#${g.host} .cp-selall`);
   if(sa){ sa.checked=g.selected.size===g.rows.length&&g.rows.length>0;
     sa.indeterminate=g.selected.size>0&&g.selected.size<g.rows.length; }
