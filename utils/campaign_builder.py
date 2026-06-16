@@ -39,11 +39,13 @@ PAT_EDITABLE = ["asin", "type", "product", "asp", "acos"]
 PAT_NUMERIC = {"asp", "acos"}
 
 
-def _apply_grid_edits(rows, edits, numeric_fields):
+def _apply_grid_edits(rows, edits, numeric_fields, skip_empty=None):
     """Override row fields with the user's saved edits (keyed by row index).
 
     Additive: with no edits the rows are untouched. Numeric fields are coerced
     to float; blanks/invalid numbers are ignored so a bad cell never breaks build.
+    skip_empty: set of field names where an empty-string saved edit should NOT
+    erase a freshly generated value (e.g. 'category' from AI root assignment).
     """
     if not edits:
         return
@@ -58,6 +60,8 @@ def _apply_grid_edits(rows, edits, numeric_fields):
                 except (TypeError, ValueError):
                     continue   # keep the computed default
             else:
+                if skip_empty and field in skip_empty and not val:
+                    continue  # stale blank edit; keep the generated value
                 row[field] = val
 
 
@@ -258,7 +262,8 @@ def assemble(pid):
             # Conversion Rate — from H10 ABA Total Conv. Share or STR CVR column.
             "cvr": cvr_by_kw.get(kw.lower(), ""),
         })
-    _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC)
+    _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC,
+                      skip_empty={"category"})
     inp.semantics_rows = sem_rows
 
     # ---- PAT targets + MKL ASIN buckets ------------------------------------
