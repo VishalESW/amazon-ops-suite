@@ -954,15 +954,17 @@ function cpSort(kind,ci,dir){ const g=GRIDS[kind];
   cpCloseFilter();
 }
 function copyKeywords(){
-  const kws=(GRIDS.sem&&GRIDS.sem.rows||[]).map(r=>r.keyword||'').filter(Boolean);
-  if(!kws.length){toast('No keywords to copy','error');return;}
+  if(!GRIDS.sem||!GRIDS.sem.selected||!GRIDS.sem.selected.size){toast('Select keywords first','error');return;}
+  const kws=[...GRIDS.sem.selected].sort((a,b)=>a-b)
+    .map(i=>(GRIDS.sem.rows[i]||{}).keyword||'').filter(Boolean);
+  if(!kws.length){toast('No keywords in selection','error');return;}
   navigator.clipboard.writeText(kws.join('\n')).then(
     ()=>toast(`Copied ${kws.length} keyword(s)`,'success'),
     ()=>toast('Copy failed — try selecting and copying manually','error'));
 }
 function copyPatAsins(){
-  const asins=Object.entries(AS_TAGS).filter(([,t])=>t&&t!=='Non-relevant').map(([a])=>a);
-  if(!asins.length){toast('No tagged ASINs to copy','error');return;}
+  if(!AS_SEL.size){toast('Select ASINs first','error');return;}
+  const asins=[...AS_SEL];
   navigator.clipboard.writeText(asins.join('\n')).then(
     ()=>toast(`Copied ${asins.length} ASIN(s)`,'success'),
     ()=>toast('Copy failed — try selecting and copying manually','error'));

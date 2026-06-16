@@ -435,9 +435,15 @@ def asin_table(pid, filekey):
     products_all = asin_state.get("products") or []
     name_by_asin = {p["asin"]: p.get("name", "") for p in products_all}
 
+    # Only show rows whose keyword was tagged Y or Competitor in the keyword selection step
+    file_sels = cdb.get_state(pid, "selections", {}).get(filekey, {})
+    y_or_comp = {int(ri) for ri, tag in file_sels.items() if tag in ("Y", "Competitor")}
+    all_rows = grid["rows"]
+    rows = [row for i, row in enumerate(all_rows) if not y_or_comp or i in y_or_comp]
+
     kc = grid.get("keyword_col")
     seen, out = set(), []
-    for row in grid["rows"]:
+    for row in rows:
         ctx = (row[kc] if (kc is not None and kc < len(row)) else "") or ""
         for ci in grid.get("asin_cols", []):
             if ci >= len(row):
@@ -459,13 +465,13 @@ def asin_table(pid, filekey):
     auto_tags = {}
     for col_ci, _col_name in enumerate(grid["columns"]):
         matches = sum(
-            1 for row in grid["rows"]
+            1 for row in rows
             if col_ci < len(row) and str(row[col_ci] or "").strip().lower() in pat_tags_lower
         )
         if matches == 0:
             continue
         # Use the first column that has matching values
-        for row in grid["rows"]:
+        for row in rows:
             if col_ci >= len(row):
                 continue
             tag_val = str(row[col_ci] or "").strip().lower()
@@ -483,15 +489,15 @@ def asin_table(pid, filekey):
     saved_tags = cdb.get_state(pid, "asin_tags", {})
     merged_tags = {**auto_tags, **saved_tags}
 
-    full_rows = grid["rows"][:ROW_CAP]
+    full_rows = rows[:ROW_CAP]
     return jsonify({"success": True, "asins": out,
                     "tags": merged_tags, "pat_tags": PAT_TAGS,
                     "columns": grid["columns"],
                     "rows": full_rows,
                     "asin_cols": grid.get("asin_cols", []),
                     "name_by_asin": name_by_asin,
-                    "total": len(grid["rows"]),
-                    "truncated": len(grid["rows"]) > ROW_CAP})
+                    "total": len(rows),
+                    "truncated": len(rows) > ROW_CAP})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["POST"])
