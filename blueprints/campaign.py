@@ -627,102 +627,51 @@ def save_pat_flat_edits(pid):
 
 @bp.route("/projects/<pid>/pat-table/<filekey>")
 def get_pat_table(pid, filekey):
-    """Y/Competitor keyword rows from one SQP/BA/POE file, with CVR and saved edits."""
+    """All unique ASINs from every ASIN column in one SQP/BA/POE file."""
     if not cdb.get_project(pid):
         abort(404)
     grid = cstore.load_parsed(pid, filekey)
     if grid is None:
         abort(404)
 
-    file_sels = cdb.get_state(pid, "selections", {}).get(filekey, {})
-    y_comp = {int(ri) for ri, tag in file_sels.items() if tag in ("Y", "Competitor")}
-
     columns = grid.get("columns", [])
-    kc = grid.get("keyword_col")
     asin_cols = grid.get("asin_cols", [])
     all_rows = grid["rows"]
-
-    # Fallback when keyword_col wasn't auto-detected (e.g. BA file with niche name
-    # as the column header instead of "Search Term").
-    if kc is None:
-        kw_toks = ("search term", "keyword phrase", "search query", "keyword")
-        for tok in kw_toks:
-            for i, c in enumerate(columns):
-                if tok in c.lower():
-                    kc = i
-                    break
-            if kc is not None:
-                break
-        if kc is None and columns:
-            # BA files always have a rank-like column first; search term is col 1.
-            col0 = columns[0].lower()
-            kc = 1 if ("frequency" in col0 or "rank" in col0 or "sfr" in col0) and len(columns) > 1 else 0
 
     # Fallback: derive asin_cols from column names if parsing missed them.
     if not asin_cols:
         asin_cols = [i for i, c in enumerate(columns) if "asin" in c.lower()]
 
-    orders_ci = None
-    for ci, col in enumerate(columns):
-        cl = col.strip().lower()
-        if ("7 day" in cl and "order" in cl) or ("purchase" in cl and "total" in cl):
-            orders_ci = ci
-            break
-
-    # Build CVR map from h10/str/ba/brand raw files
-    uploads = cdb.get_state(pid, "uploads", [])
-    cvr_by_kw = {}
-    for u in uploads:
-        src = u.get("source", "")
-        if src not in ("h10", "str", "ba", "brand"):
-            continue
-        path = cstore.raw_path(pid, u["filekey"])
-        if not path or not os.path.exists(path):
-            continue
-        try:
-            with open(path, "rb") as f:
-                data = f.read()
-            fs = FileStorage(stream=io.BytesIO(data), filename=u["filename"])
-            df = orch.read_table_smart(fs, src)
-            cvr_by_kw.update(orch.extract_cvr_by_kw(df, src))
-        except Exception:
-            pass
-
     asin_tags = cdb.get_state(pid, "asin_tags", {})
-    all_row_edits = cdb.get_state(pid, "pat_row_edits", {})
-    file_row_edits = all_row_edits.get(filekey, {})
 
-    rows_out = []
-    for ridx, row in enumerate(all_rows):
-        if y_comp and ridx not in y_comp:
-            continue
-        kw = str(row[kc]).strip() if kc is not None and kc < len(row) else ""
-        orders = str(row[orders_ci]).strip() if orders_ci is not None and orders_ci < len(row) else ""
-        cvr = cvr_by_kw.get(kw.lower(), "")
-        asins = []
+    # Collect all unique ASINs from every ASIN column across all rows.
+    asin_info = {}  # asin -> {count, cols: set of column names}
+    for row in all_rows:
         for ci in asin_cols:
             if ci >= len(row):
                 continue
             m = orch._ASIN_RE.search(str(row[ci] or "").strip())
-            if m:
-                asins.append(m.group(0).upper())
-        asin_type = next((asin_tags.get(a, "") for a in asins if asin_tags.get(a, "")), "")
-        e = file_row_edits.get(str(ridx), {})
-        rows_out.append({
-            "ridx": ridx,
-            "keyword": kw,
-            "orders": orders,
-            "cvr": cvr,
-            "asins": asins,
-            "asin_type": e.get("asin_type", asin_type),
-            "cpc": e.get("cpc", ""),
-            "acos_pct": e.get("acos_pct", ""),
-            "product": e.get("product", ""),
-            "placement_mod": e.get("placement_mod", ""),
-            "asp": e.get("asp", ""),
-            "acos_target": e.get("acos_target", ""),
-        })
-    return jsonify({"success": True, "rows": rows_out, "row_edits": file_row_edits})
+            if not m:
+                continue
+            asin = m.group(0).upper()
+            col_name = columns[ci] if ci < len(columns) else ""
+            if asin not in asin_info:
+                asin_info[asin] = {"count": 0, "cols": set()}
+            asin_info[asin]["count"] += 1
+            asin_info[asin]["cols"].add(col_name)
+
+    asins_out = sorted([
+        {
+            "asin": asin,
+            "count": info["count"],
+            "cols": sorted(info["cols"]),
+            "tag": asin_tags.get(asin, ""),
+        }
+        for asin, info in asin_info.items()
+    ], key=lambda x: -x["count"])
+
+    col_names = [columns[i] for i in asin_cols if i < len(columns)]
+    return jsonify({"success": True, "asins": asins_out, "col_names": col_names})
 
 
 @bp.route("/projects/<pid>/pat-row-edits", methods=["POST"])

@@ -607,9 +607,8 @@ async function saveKw(){
   finally{ btn.disabled=false; btn.textContent='Save selections'; }
 }
 
-// ---- ASIN selection (PAT) — file-tab view (SQP / BA / POE, Y+Comp rows only) ----
-let PAT_UP=[], PAT_CUR=null, PAT_DATA=null, AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK_RI=null;
-let PAT_ROW_EDITS={};   // {ridx_str: {field: val}} — scoped to current file
+// ---- ASIN selection (PAT) — file-tab view (SQP / BA / POE) ----
+let PAT_UP=[], PAT_CUR=null, PAT_DATA=null, AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK=null;
 const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
 if(STEP==='asin_sel') initPat();
 async function initPat(){
@@ -619,10 +618,10 @@ async function initPat(){
       fetch(`/campaign/projects/${PID}/asin-tags`).then(r=>r.json()).catch(()=>({tags:{}})),
     ]);
     AS_TAGS=tg.tags||{};
-    PAT_UP=(upl.uploads||[]).filter(u=>['sqp','ba','poe'].includes(u.source)&&u.has_y_or_comp);
+    PAT_UP=(upl.uploads||[]).filter(u=>['sqp','ba','poe'].includes(u.source)&&u.has_grid);
     const host=document.getElementById('asFiles');
     if(!PAT_UP.length){
-      host.innerHTML='<p class="text-sm text-muted-foreground">No SQP, Brand Analytics, or POE files with Y/Competitor selections. Tag keywords first.</p>';
+      host.innerHTML='<p class="text-sm text-muted-foreground">No SQP, Brand Analytics, or POE files uploaded. Upload files in the Keywords step.</p>';
       return;
     }
     host.innerHTML=PAT_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openPatFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
@@ -633,128 +632,86 @@ async function openPatFile(i){
   PAT_CUR=PAT_UP[i];
   document.querySelectorAll('#asFiles .cp-filetab').forEach(b=>b.setAttribute('data-on',b.dataset.i==i?'1':'0'));
   document.getElementById('asHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
-  AS_SEL=new Set(); AS_LAST_CHK_RI=null;
+  AS_SEL=new Set(); AS_LAST_CHK=null;
   const r=await fetch(`/campaign/projects/${PID}/pat-table/${PAT_CUR.filekey}`).then(r=>r.json()).catch(()=>({success:false}));
   if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load</p>'; return; }
-  PAT_DATA=r; PAT_ROW_EDITS=r.row_edits||{};
+  PAT_DATA=r;
   renderPatFile();
-}
-const PAT_COLS=[
-  {label:'Customer Search Term',field:'keyword',type:'ro'},
-  {label:'URL',field:'_url',type:'link'},
-  {label:'Sum of 7 Day Total Orders (#)',field:'orders',type:'ro'},
-  {label:'Sum of $ CPC',field:'cpc',type:'edit'},
-  {label:'Sum of % ACoS',field:'acos_pct',type:'edit'},
-  {label:'Matching Product',field:'product',type:'edit'},
-  {label:'ASIN Cat Type',field:'asin_type',type:'select'},
-  {label:'Placement Modifier',field:'placement_mod',type:'edit'},
-  {label:'ASP',field:'asp',type:'edit'},
-  {label:'ACoS Target',field:'acos_target',type:'edit'},
-  {label:'Conversion Rate',field:'cvr',type:'ro'},
-  {label:'Starting Bid',field:'_bid',type:'computed'},
-];
-function _parsePct(s){ const v=parseFloat(s); return isNaN(v)?NaN:(String(s).includes('%')?v/100:v); }
-function _patBid(asp,acos,cvr){
-  const a=_parsePct(asp),b=_parsePct(acos),c=_parsePct(cvr);
-  if(isNaN(a)||isNaN(b)||isNaN(c)||a<=0||b<=0||c<=0) return '';
-  return (a*b*c).toFixed(2);
 }
 function renderPatFile(){
   const host=document.getElementById('asHost');
-  const rows=(PAT_DATA&&PAT_DATA.rows)||[];
-  const srcLabel=PAT_CUR?PAT_CUR.label:'';
-  if(!rows.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No Y/Competitor rows found in this file.</p>'; return; }
+  const asins=(PAT_DATA&&PAT_DATA.asins)||[];
+  if(!asins.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in this file.</p>'; return; }
   const q=(document.getElementById('asFilter').value||'').toLowerCase();
-  let head=`<tr><th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onclick="patToggleAll(this)"> <span style="font-size:.72rem">#</span></th>`;
-  head+=`<th>Source</th>`;
-  PAT_COLS.forEach(c=>{ head+=`<th>${esc(c.label)}</th>`; });
-  head+='</tr>';
+  const head=`<tr>
+    <th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onclick="patToggleAll(this)"> <span style="font-size:.72rem">#</span></th>
+    <th>ASIN</th>
+    <th>Appears In</th>
+    <th style="text-align:center">Count</th>
+    <th>Tag Type</th>
+  </tr>`;
   let body='',vis=0;
-  rows.forEach((row,ri)=>{
-    const e=PAT_ROW_EDITS[String(row.ridx)]||{};
-    const curType=e.asin_type||(row.asins&&row.asins.length?AS_TAGS[row.asins[0]]||'':'')||row.asin_type||'';
-    const rowTxt=[row.keyword,srcLabel,row.orders,row.cvr,curType,e.product||'',e.cpc||''].join(' ').toLowerCase();
+  asins.forEach(row=>{
+    const curTag=AS_TAGS[row.asin]||row.tag||'';
+    const rowTxt=[row.asin,curTag,(row.cols||[]).join(' ')].join(' ').toLowerCase();
     if(q&&!rowTxt.includes(q)) return;
     vis++;
-    const checked=AS_SEL.has(row.ridx);
-    const asinsStr=(row.asins||[]).join(',');
-    const urlKw=encodeURIComponent(row.keyword||'');
-    let tds=`<td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="pat-rowchk" data-ridx="${row.ridx}" ${checked?'checked':''} onclick="patSelRow(${row.ridx},this,event)"> <span class="text-muted-foreground" style="font-size:.72rem">${vis}</span></td>`;
-    tds+=`<td>${esc(srcLabel)}</td>`;
-    PAT_COLS.forEach(c=>{
-      if(c.type==='ro'){
-        tds+=`<td>${esc(String(row[c.field]??''))}</td>`;
-      } else if(c.type==='link'){
-        tds+=`<td><a href="https://www.amazon.com/s?k=${urlKw}" target="_blank" class="text-primary underline text-xs" title="${esc(row.keyword||'')}">${esc((row.keyword||'').slice(0,40))}</a></td>`;
-      } else if(c.type==='edit'){
-        const v=e[c.field]??row[c.field]??'';
-        tds+=`<td><input class="cp-cell-inp" value="${esc(String(v))}" onchange="patRowEdit(${row.ridx},'${c.field}',this.value,${ri})"></td>`;
-      } else if(c.type==='select'){
-        const opts=`<option value="">—</option>${PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}" ${o===curType?'selected':''}>${esc(o)}</option>`).join('')}`;
-        tds+=`<td><select class="cp-tagsel" data-ridx="${row.ridx}" onchange="patSetType(${row.ridx},'${esc(asinsStr)}',this.value)">${opts}</select></td>`;
-      } else if(c.type==='computed'){
-        const asp=e.asp??row.asp??'',acos=e.acos_target??row.acos_target??'',cvr=row.cvr??'';
-        tds+=`<td class="num" id="pat-bid-${ri}">${esc(_patBid(asp,acos,cvr))}</td>`;
-      }
-    });
-    body+=`<tr data-ridx="${row.ridx}">${tds}</tr>`;
+    const checked=AS_SEL.has(row.asin);
+    const opts=`<option value="">—</option>${PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}" ${o===curTag?'selected':''}>${esc(o)}</option>`).join('')}`;
+    // Shorten col names: strip leading "N-" rank prefix and trailing "ASIN"
+    const colsShort=(row.cols||[]).map(c=>c.replace(/^\d+-?\s*/,'').replace(/\basins?\b\s*/i,'').replace(/\s+/g,' ').trim()).filter(Boolean).join(', ');
+    const asin=row.asin;
+    body+=`<tr data-asin="${esc(asin)}">
+      <td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="pat-rowchk" data-asin="${esc(asin)}" ${checked?'checked':''} onclick="patSelRow('${esc(asin)}',this,event)"> <span class="text-muted-foreground" style="font-size:.72rem">${vis}</span></td>
+      <td><a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="text-primary underline font-mono text-xs">${esc(asin)}</a></td>
+      <td class="text-xs text-muted-foreground">${esc(colsShort||'—')}</td>
+      <td style="text-align:center" class="text-xs">${row.count}</td>
+      <td><select class="cp-tagsel" data-asin="${esc(asin)}" onchange="patSetType('${esc(asin)}',this.value)">${opts}</select></td>
+    </tr>`;
   });
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
 }
-function patRowEdit(ridx,field,val,ri){
-  (PAT_ROW_EDITS[String(ridx)]=PAT_ROW_EDITS[String(ridx)]||{})[field]=val;
-  if(['asp','acos_target'].includes(field)){
-    const row=(PAT_DATA&&PAT_DATA.rows||[]).find(r=>r.ridx===ridx);
-    const e=PAT_ROW_EDITS[String(ridx)]||{};
-    const el=document.getElementById(`pat-bid-${ri}`);
-    if(el) el.textContent=_patBid(e.asp??(row&&row.asp||''),e.acos_target??(row&&row.acos_target||''),row&&row.cvr||'');
-  }
-  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
-}
-function patSetType(ridx,asinsStr,val){
-  (PAT_ROW_EDITS[String(ridx)]=PAT_ROW_EDITS[String(ridx)]||{}).asin_type=val;
-  asinsStr.split(',').filter(Boolean).forEach(asin=>{ if(val) AS_TAGS[asin]=val; else delete AS_TAGS[asin]; });
+function patSetType(asin,val){
+  if(val) AS_TAGS[asin]=val; else delete AS_TAGS[asin];
   updateAsinCounts();
   const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
-function patSelRow(ridx,el,event){
+function patSelRow(asin,el,event){
   const st=el.checked;
-  if(event&&event.shiftKey&&AS_LAST_CHK_RI!==null){
-    const visTrs=[...document.querySelectorAll('#asHost tr[data-ridx]')];
-    const ridxList=visTrs.map(tr=>+tr.dataset.ridx);
-    const posA=ridxList.indexOf(AS_LAST_CHK_RI),posB=ridxList.indexOf(ridx);
+  if(event&&event.shiftKey&&AS_LAST_CHK!==null){
+    const visTrs=[...document.querySelectorAll('#asHost tr[data-asin]')];
+    const asinList=visTrs.map(tr=>tr.dataset.asin);
+    const posA=asinList.indexOf(AS_LAST_CHK),posB=asinList.indexOf(asin);
     if(posA!==-1&&posB!==-1){
       const lo=Math.min(posA,posB),hi=Math.max(posA,posB);
-      ridxList.slice(lo,hi+1).forEach(idx=>{
-        const tr=document.querySelector(`#asHost tr[data-ridx="${idx}"]`); if(!tr) return;
+      asinList.slice(lo,hi+1).forEach(a=>{
+        const tr=document.querySelector(`#asHost tr[data-asin="${a}"]`); if(!tr) return;
         const cb=tr.querySelector('.pat-rowchk'); if(!cb) return;
         cb.checked=st;
-        if(st) AS_SEL.add(idx); else AS_SEL.delete(idx);
+        if(st) AS_SEL.add(a); else AS_SEL.delete(a);
       });
     }
-  } else { if(st) AS_SEL.add(ridx); else AS_SEL.delete(ridx); }
-  AS_LAST_CHK_RI=ridx;
+  } else { if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); }
+  AS_LAST_CHK=asin;
   updateAsinCounts();
   const sa=document.getElementById('asSelAll');
-  if(sa){ const vis=[...document.querySelectorAll('#asHost tr[data-ridx]')]; sa.checked=vis.length>0&&vis.every(tr=>AS_SEL.has(+tr.dataset.ridx)); sa.indeterminate=vis.some(tr=>AS_SEL.has(+tr.dataset.ridx))&&!sa.checked; }
+  if(sa){ const vis=[...document.querySelectorAll('#asHost tr[data-asin]')]; sa.checked=vis.length>0&&vis.every(tr=>AS_SEL.has(tr.dataset.asin)); sa.indeterminate=vis.some(tr=>AS_SEL.has(tr.dataset.asin))&&!sa.checked; }
 }
 function patToggleAll(el){
-  const visTrs=[...document.querySelectorAll('#asHost tr[data-ridx]')];
-  if(el.checked) visTrs.forEach(tr=>AS_SEL.add(+tr.dataset.ridx));
-  else visTrs.forEach(tr=>AS_SEL.delete(+tr.dataset.ridx));
+  const visTrs=[...document.querySelectorAll('#asHost tr[data-asin]')];
+  if(el.checked) visTrs.forEach(tr=>AS_SEL.add(tr.dataset.asin));
+  else visTrs.forEach(tr=>AS_SEL.delete(tr.dataset.asin));
   visTrs.forEach(tr=>{ const cb=tr.querySelector('.pat-rowchk'); if(cb) cb.checked=el.checked; });
   updateAsinCounts();
 }
 function patBulkSet(tag){
   if(!AS_SEL.size){ toast('Select rows first','error'); return; }
-  AS_SEL.forEach(ridx=>{
-    const row=(PAT_DATA&&PAT_DATA.rows||[]).find(r=>r.ridx===ridx);
-    if(!row) return;
-    patSetType(ridx,(row.asins||[]).join(','),tag);
-    document.querySelectorAll(`#asHost select.cp-tagsel[data-ridx="${ridx}"]`).forEach(s=>s.value=tag||'');
+  AS_SEL.forEach(asin=>{
+    patSetType(asin,tag);
+    document.querySelectorAll(`#asHost select.cp-tagsel[data-asin="${asin}"]`).forEach(s=>s.value=tag||'');
   });
-  toast(`${tag||'Cleared'} → ${AS_SEL.size} row(s)`,'success');
+  toast(`${tag||'Cleared'} → ${AS_SEL.size} ASIN(s)`,'success');
 }
 function updateAsinCounts(){
   const c={};
@@ -763,13 +720,7 @@ function updateAsinCounts(){
 }
 function copyPatAsins(){
   if(!AS_SEL.size){ toast('Select rows first','error'); return; }
-  const asins=new Set();
-  AS_SEL.forEach(ridx=>{
-    const row=(PAT_DATA&&PAT_DATA.rows||[]).find(r=>r.ridx===ridx);
-    if(row) (row.asins||[]).forEach(a=>asins.add(a));
-  });
-  if(!asins.size){ toast('No ASINs in selected rows','error'); return; }
-  const arr=[...asins];
+  const arr=[...AS_SEL];
   navigator.clipboard.writeText(arr.join('\n')).then(
     ()=>toast(`Copied ${arr.length} ASIN(s)`,'success'),
     ()=>toast('Copy failed','error'));
@@ -777,12 +728,9 @@ function copyPatAsins(){
 async function saveAsinTags(){
   const btn=document.getElementById('asSave'); btn.disabled=true; btn.textContent='Saving…';
   try{
-    const saves=[fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json())];
-    if(PAT_CUR) saves.push(fetch(`/campaign/projects/${PID}/pat-row-edits`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filekey:PAT_CUR.filekey,edits:PAT_ROW_EDITS})}).then(r=>r.json()));
-    const results=await Promise.all(saves);
-    const ok=results.every(r=>r.success);
-    toast(ok?`Saved (${results[0].count||0} tagged)`:'Save failed',ok?'success':'error');
-    if(ok) btn.textContent='Save selections';
+    const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json());
+    toast(r.success?`Saved (${r.count||0} tagged)`:'Save failed',r.success?'success':'error');
+    if(r.success) btn.textContent='Save selections';
   }catch(e){ toast('Network error','error'); }
   finally{ btn.disabled=false; }
 }
