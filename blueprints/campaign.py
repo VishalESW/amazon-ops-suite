@@ -693,8 +693,9 @@ def get_pat_all_asins(pid):
     asin_state = cdb.get_state(pid, "asins") or {}
     name_by_asin = {p["asin"]: p.get("name", "") for p in (asin_state.get("products") or [])}
 
-    seen = set()
-    asins_out = []
+    # asin -> first non-empty product title found across all files
+    asin_to_title = {}
+
     for u in uploads:
         if u.get("source") not in ALLOWED or not u.get("has_grid"):
             continue
@@ -705,6 +706,23 @@ def get_pat_all_asins(pid):
         asin_cols = grid.get("asin_cols", [])
         if not asin_cols:
             asin_cols = [i for i, c in enumerate(columns) if "asin" in c.lower()]
+
+        # For POE files: "Top Clicked Product N (Asin)" pairs with "Top Clicked Product N (Title)"
+        # Build asin_col_idx -> title_col_idx map using the (Asin)→(Title) name substitution.
+        title_col_map = {}
+        col_lows = [c.lower() for c in columns]
+        for ci in asin_cols:
+            if ci >= len(columns):
+                continue
+            col_low = col_lows[ci]
+            if col_low.endswith("(asin)"):
+                prefix = columns[ci][:-6]  # strip trailing "(Asin)" — always 6 chars
+                target_low = prefix.lower() + "(title)"
+                for ti, cl in enumerate(col_lows):
+                    if cl == target_low:
+                        title_col_map[ci] = ti
+                        break
+
         for row in grid["rows"]:
             for ci in asin_cols:
                 if ci >= len(row):
@@ -713,16 +731,26 @@ def get_pat_all_asins(pid):
                 if not m:
                     continue
                 asin = m.group(0).upper()
-                if asin in seen:
-                    continue
-                seen.add(asin)
-                asins_out.append({
-                    "asin": asin,
-                    "product_name": asin_names.get(asin) or name_by_asin.get(asin, ""),
-                    "tag": asin_tags.get(asin, ""),
-                })
+                if asin not in asin_to_title:
+                    asin_to_title[asin] = ""
+                # Fill title on the first row that has one for this ASIN
+                if not asin_to_title[asin]:
+                    ti = title_col_map.get(ci)
+                    if ti is not None and ti < len(row):
+                        title = str(row[ti] or "").strip()
+                        if title:
+                            asin_to_title[asin] = title
 
-    asins_out.sort(key=lambda x: x["asin"])
+    asins_out = sorted([
+        {
+            "asin": asin,
+            # Priority: user-saved name > AdLabs product name > file-sourced title
+            "product_name": asin_names.get(asin) or name_by_asin.get(asin, "") or title,
+            "tag": asin_tags.get(asin, ""),
+        }
+        for asin, title in asin_to_title.items()
+    ], key=lambda x: x["asin"])
+
     return jsonify({"success": True, "asins": asins_out})
 
 
