@@ -173,12 +173,30 @@ def assemble(pid):
     own_searches, own_names = [], []
     seen_y = set()
     for u in uploads:
-        if not u.get("has_grid") or u.get("keyword_col") is None:
+        if not u.get("has_grid"):
             continue
         grid = cstore.load_parsed(pid, u["filekey"])
         if not grid:
             continue
-        kc = grid["keyword_col"]
+        kc = grid.get("keyword_col")
+        # Fallback: some BA/batst files store keyword_col=None when the column
+        # header uses a niche name instead of "Search Term". Apply the same
+        # detection the frontend kcFallback uses.
+        if kc is None:
+            cols = grid.get("columns", [])
+            kw_toks = ("search term", "keyword phrase", "search query", "keyword")
+            for tok in kw_toks:
+                for i, c in enumerate(cols):
+                    if tok in c.lower():
+                        kc = i
+                        break
+                if kc is not None:
+                    break
+            if kc is None and cols:
+                col0 = cols[0].lower()
+                kc = 1 if ("frequency" in col0 or "rank" in col0 or "sfr" in col0) and len(cols) > 1 else 0
+        if kc is None:
+            continue
         bcols = grid.get("brand_cols") or []
         rows = grid["rows"]
         for ridx, tag in (selections.get(u["filekey"]) or {}).items():
