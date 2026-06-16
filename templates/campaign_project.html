@@ -302,22 +302,21 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     <section class="cp-card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div><h2 class="text-lg font-semibold">ASIN selection (PAT)</h2>
-          <p class="text-sm text-muted-foreground">Tag competitor ASINs by type: <strong>Main</strong> · <strong>Low Rated</strong> · <strong>High Priced</strong> · <strong>Bestselling</strong>. <strong>Non-relevant</strong> is excluded. These build the PAT tab.</p></div>
+          <p class="text-sm text-muted-foreground">ASINs auto-extracted from Y &amp; Competitor keywords in <strong>SQP</strong>, <strong>Brand Analytics</strong>, and <strong>POE</strong>. Deduplicated across all sources. Tag each ASIN type to build PAT campaigns.</p></div>
         <button onclick="advanceTo('master')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Master Keywords</button>
       </div>
-      <div id="asFiles" class="flex flex-wrap gap-2 mb-3"></div>
       <div class="flex flex-wrap items-center gap-2 mb-2">
-        <input id="asFilter" oninput="renderAsinGrid()" placeholder="Filter any column…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
-        <span class="text-xs text-muted-foreground">Bulk set filtered:</span>
+        <input id="asFilter" oninput="renderPatGrid()" placeholder="Filter any column…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
+        <span class="text-xs text-muted-foreground">Bulk set selected:</span>
         {% for t in ['Main','Low Rated','High Priced','Bestselling','Non-relevant'] %}
-        <button onclick="bulkAsin('{{ t }}')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">{{ t }}</button>
+        <button onclick="patBulkSet('{{ t }}')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">{{ t }}</button>
         {% endfor %}
-        <button onclick="bulkAsin('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
+        <button onclick="patBulkSet('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
         <span id="asCounts" class="text-xs text-muted-foreground ml-auto"></span>
         <button onclick="copyPatAsins()" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-semibold hover:bg-accent transition">Copy ASINs</button>
         <button onclick="saveAsinTags()" id="asSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
       </div>
-      <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Select a file above to begin.</p></div>
+      <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Loading PAT targets…</p></div>
     </section>
 
     {% elif cur == 'semantics' %}
@@ -604,139 +603,129 @@ async function saveKw(){
   finally{ btn.disabled=false; btn.textContent='Save selections'; }
 }
 
-// ---- ASIN selection (PAT) ----
-let AS_UP=[], AS_CUR=null, AS_DATA=null, AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK_RI=null;
+// ---- ASIN selection (PAT) — flat deduplicated view ----
+let PAT_ROWS=[], AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK_RI=null, PAT_EDITS={};
 const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
-if(STEP==='asin_sel') initAsin();
-async function initAsin(){
-  const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
-  AS_UP=(r.uploads||[]).filter(u=>(u.asin_cols||[]).length>0 && u.has_y_or_comp);
-  const host=document.getElementById('asFiles');
-  if(!AS_UP.length){ host.innerHTML='<p class="text-sm text-muted-foreground">No files with ASIN columns. Go back to Uploads.</p>'; return; }
-  host.innerHTML=AS_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openAsinFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
-  openAsinFile(0);
-}
-async function openAsinFile(i){
-  AS_CUR=AS_UP[i];
-  document.querySelectorAll('#asFiles .cp-filetab').forEach(b=>b.setAttribute('data-on', b.dataset.i==i?'1':'0'));
+if(STEP==='asin_sel') initPatFlat();
+async function initPatFlat(){
   document.getElementById('asHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
-  const r=await fetch(`/campaign/projects/${PID}/asin-table/${AS_CUR.filekey}`).then(r=>r.json());
-  if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load</p>'; return; }
-  AS_DATA=r; AS_TAGS=Object.assign(AS_TAGS, r.tags||{}); AS_LAST_CHK_RI=null;
-  renderAsinGrid();
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/pat-flat`).then(r=>r.json());
+    if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Error loading PAT data.</p>'; return; }
+    PAT_ROWS=r.rows||[]; PAT_EDITS=r.edits||{};
+    PAT_ROWS.forEach(row=>{ if(row.type) AS_TAGS[row.asin]=row.type; });
+    renderPatGrid();
+  }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
 }
-const _ASIN_RE_JS=/\bB0[A-Z0-9]{8}\b/i;
-function _rowAsins(row){
-  const s=[];
-  (AS_DATA.asin_cols||[]).forEach(ci=>{const m=String(row[ci]||'').match(_ASIN_RE_JS);if(m)s.push(m[0].toUpperCase());});
-  return s;
+const PAT_COLS=[
+  {label:'ASIN',field:'asin',type:'link'},
+  {label:'Source',field:'source',type:'ro'},
+  {label:'Customer Search Term',field:'keyword',type:'ro'},
+  {label:'Sum of 7 Day Total Orders (#)',field:'orders',type:'ro'},
+  {label:'Sum of $ CPC',field:'cpc',type:'edit'},
+  {label:'Sum of % ACoS',field:'acos_pct',type:'edit'},
+  {label:'Matching Product',field:'product',type:'edit'},
+  {label:'ASIN Cat Type',field:'type',type:'select'},
+  {label:'Placement Modifier',field:'placement_mod',type:'edit'},
+  {label:'ASP',field:'asp',type:'edit'},
+  {label:'ACoS Target',field:'acos_target',type:'edit'},
+  {label:'Conversion Rate',field:'cvr',type:'ro'},
+  {label:'Starting Bid',field:'_bid',type:'computed'},
+];
+function _parsePct(s){ const v=parseFloat(s); return isNaN(v)?NaN:(String(s).includes('%')?v/100:v); }
+function _patBid(row){
+  const asp=_parsePct(row.asp),acos=_parsePct(row.acos_target),cvr=_parsePct(row.cvr);
+  if(isNaN(asp)||isNaN(acos)||isNaN(cvr)||asp<=0||acos<=0||cvr<=0) return '';
+  return (asp*acos*cvr).toFixed(2);
 }
-function _totalUniqueAsins(){
-  if(!AS_DATA||!AS_DATA.rows) return 0;
-  const s=new Set(); AS_DATA.rows.forEach(r=>_rowAsins(r).forEach(a=>s.add(a))); return s.size;
-}
-function renderAsinGrid(){
-  if(!AS_DATA) return;
+function renderPatGrid(){
   const host=document.getElementById('asHost');
-  const rows=AS_DATA.rows||[], cols=AS_DATA.columns||[];
-  const asinColSet=new Set(AS_DATA.asin_cols||[]);
-  const nameMap=AS_DATA.name_by_asin||{};
-  if(!rows.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No rows found in this file.</p>'; return; }
+  if(!PAT_ROWS.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found. Select Y or Competitor keywords in SQP, Brand Analytics, or POE files first.</p>'; return; }
   const q=(document.getElementById('asFilter').value||'').toLowerCase();
-  const patBulkOpts=PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}">${esc(o)}</option>`).join('');
-  const patBulkRow=`<div class="cp-bulk-row"><select class="cp-bulk-input" id="asBulkTag"><option value="">—</option>${patBulkOpts}</select><button class="cp-bulk-apply" onclick="asBulkApply()">Apply</button></div>`;
-  // Header
-  let head=`<tr><th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onchange="asToggleAll(this)"> <span style="font-size:.72rem">#</span></th>`;
-  cols.forEach((c,ci)=>{
-    const isAsin=asinColSet.has(ci);
-    head+=`<th class="${isAsin?'cp-kwcol':''}">${esc(c)}</th>`;
-    if(isAsin) head+=`<th class="cp-kwcol"><div class="cp-th"><span>PAT type</span></div>${patBulkRow}</th>`;
-  });
+  let head=`<tr><th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onclick="patToggleAll(this)"> <span style="font-size:.72rem">#</span></th>`;
+  PAT_COLS.forEach(c=>{ head+=`<th>${esc(c.label)}</th>`; });
   head+='</tr>';
-  // Body
-  let body='', vis=0;
-  rows.forEach((row,ri)=>{
-    const rowTxt=row.map(v=>(v==null?'':String(v))).join(' ').toLowerCase();
+  let body='',vis=0;
+  PAT_ROWS.forEach((row,ri)=>{
+    const e=PAT_EDITS[row.asin]||{};
+    const curType=AS_TAGS[row.asin]||row.type||'';
+    const rowTxt=[row.asin,row.source,row.keyword,row.orders,row.cvr,curType,e.product||'',e.cpc||'',e.asp||''].join(' ').toLowerCase();
     if(q&&!rowTxt.includes(q)) return;
     vis++;
-    const asins=_rowAsins(row);
-    const rowSel=asins.length>0&&asins.every(a=>AS_SEL.has(a));
-    const asinsAttr=asins.map(a=>a.replace(/'/g,'')).join(',');
-    let tds=`<td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="as-rowchk" data-asins="${asinsAttr}" ${rowSel?'checked':''} onclick="asSelRow(this,event)"> <span class="text-muted-foreground" style="font-size:.72rem;font-variant-numeric:tabular-nums">${ri+1}</span></td>`;
-    row.forEach((v,ci)=>{
-      const isAsin=asinColSet.has(ci);
-      const vStr=(v==null?'':String(v));
-      tds+=`<td class="${isAsin?'cp-kwcol num':''}">${esc(vStr.slice(0,80))}</td>`;
-      if(isAsin){
-        const m=vStr.match(_ASIN_RE_JS);
-        const asin=m?m[0].toUpperCase():null;
-        const tag=asin?(AS_TAGS[asin]||''):'';
-        const pname=asin?(nameMap[asin]||''):'';
-        tds+=`<td class="cp-kwcol">${asin?`<div style="display:flex;flex-direction:column;gap:.15rem">${asinSelect(asin,tag)}<span class="text-muted-foreground" style="font-size:.68rem;line-height:1.2" title="${esc(pname)}">${esc(pname.slice(0,32))}${pname.length>32?'…':''}</span></div>`:'<span class="text-muted-foreground">—</span>'}</td>`;
+    const checked=AS_SEL.has(row.asin);
+    let tds=`<td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="pat-rowchk" data-asin="${esc(row.asin)}" ${checked?'checked':''} onclick="patSelRow(${ri},this,event)"> <span class="text-muted-foreground" style="font-size:.72rem">${vis}</span></td>`;
+    PAT_COLS.forEach(c=>{
+      const val=c.field==='type'?curType:(e[c.field]??row[c.field]??'');
+      if(c.type==='link'){
+        tds+=`<td class="num"><a href="https://www.amazon.com/dp/${esc(row.asin)}" target="_blank" class="text-primary underline">${esc(row.asin)}</a></td>`;
+      } else if(c.type==='ro'){
+        tds+=`<td>${esc(String(val??''))}</td>`;
+      } else if(c.type==='edit'){
+        tds+=`<td><input class="cp-cell-inp" value="${esc(String(val??''))}" onchange="patEdit('${esc(row.asin)}','${c.field}',this.value,${ri})"></td>`;
+      } else if(c.type==='select'){
+        const opts=`<option value="">—</option>${PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}" ${o===curType?'selected':''}>${esc(o)}</option>`).join('')}`;
+        tds+=`<td><select class="cp-tagsel" data-asin="${esc(row.asin)}" onchange="patSetType('${esc(row.asin)}',this.value)">${opts}</select></td>`;
+      } else if(c.type==='computed'){
+        const merged={asp:e.asp??row.asp??'',acos_target:e.acos_target??row.acos_target??'',cvr:e.cvr??row.cvr??''};
+        tds+=`<td class="num" id="pat-bid-${ri}">${esc(_patBid(merged))}</td>`;
       }
     });
-    body+=`<tr data-ri="${ri}">${tds}</tr>`;
+    body+=`<tr data-ri="${ri}" data-asin="${esc(row.asin)}">${tds}</tr>`;
   });
-  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`+
-    (AS_DATA.truncated?`<p class="text-xs text-muted-foreground mt-2">First ${rows.length} of ${AS_DATA.total} row(s) shown.</p>`:'');
+  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
 }
-function asinSelect(asin,tag){
-  const opts=PAT_OPTS.map(o=>`<option value="${o}" ${o===tag?'selected':''}>${o||'—'}</option>`).join('');
-  return `<select class="cp-tagsel" data-asin="${esc(asin)}" onchange="setAsinTag('${esc(asin)}',this.value)">${opts}</select>`;
+function patEdit(asin,field,val,ri){
+  (PAT_EDITS[asin]=PAT_EDITS[asin]||{})[field]=val;
+  if(['asp','acos_target','cvr'].includes(field)){
+    const row=PAT_ROWS[ri]||{}, e=PAT_EDITS[asin]||{};
+    const el=document.getElementById(`pat-bid-${ri}`);
+    if(el) el.textContent=_patBid({asp:e.asp??row.asp??'',acos_target:e.acos_target??row.acos_target??'',cvr:e.cvr??row.cvr??''});
+  }
+  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
-function setAsinTag(asin,v){
-  if(v) AS_TAGS[asin]=v; else delete AS_TAGS[asin];
-  document.querySelectorAll(`#asHost select.cp-tagsel[data-asin="${asin}"]`).forEach(s=>s.value=v||'');
+function patSetType(asin,val){
+  if(val) AS_TAGS[asin]=val; else delete AS_TAGS[asin];
   updateAsinCounts();
+  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
-function asToggleAll(el){
-  AS_SEL=new Set();
-  if(el.checked&&AS_DATA) AS_DATA.rows.forEach(r=>_rowAsins(r).forEach(a=>AS_SEL.add(a)));
-  document.querySelectorAll('#asHost .as-rowchk').forEach(cb=>cb.checked=el.checked);
-}
-function asSelRow(el,event){
-  const thisAsins=(el.dataset.asins||'').split(',').filter(Boolean), st=el.checked;
-  const thisTr=el.closest('tr'), thisRi=thisTr?+thisTr.dataset.ri:null;
-  if(event&&event.shiftKey&&AS_LAST_CHK_RI!==null&&thisRi!==null){
-    const visTrs=[...document.querySelectorAll('#asHost tr[data-ri]')].filter(r=>r.style.display!=='none');
-    const riList=visTrs.map(r=>+r.dataset.ri);
-    const posA=riList.indexOf(AS_LAST_CHK_RI),posB=riList.indexOf(thisRi);
+function patSelRow(ri,el,event){
+  const asin=el.dataset.asin, st=el.checked;
+  if(event&&event.shiftKey&&AS_LAST_CHK_RI!==null){
+    const visTrs=[...document.querySelectorAll('#asHost tr[data-ri]')].filter(tr=>tr.style.display!=='none');
+    const riList=visTrs.map(tr=>+tr.dataset.ri);
+    const posA=riList.indexOf(AS_LAST_CHK_RI),posB=riList.indexOf(ri);
     if(posA!==-1&&posB!==-1){
       const lo=Math.min(posA,posB),hi=Math.max(posA,posB);
       riList.slice(lo,hi+1).forEach(idx=>{
-        const rowEl=document.querySelector(`#asHost tr[data-ri="${idx}"]`);
-        if(!rowEl) return;
-        const cb=rowEl.querySelector('.as-rowchk'); if(!cb) return;
+        const tr=document.querySelector(`#asHost tr[data-ri="${idx}"]`); if(!tr) return;
+        const cb=tr.querySelector('.pat-rowchk'); if(!cb) return;
         cb.checked=st;
-        (cb.dataset.asins||'').split(',').filter(Boolean).forEach(asin=>{ if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); });
+        if(st) AS_SEL.add(cb.dataset.asin); else AS_SEL.delete(cb.dataset.asin);
       });
     }
-  } else { thisAsins.forEach(asin=>{ if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); }); }
-  if(thisRi!==null) AS_LAST_CHK_RI=thisRi;
+  } else { if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); }
+  AS_LAST_CHK_RI=ri;
   updateAsinCounts();
   const sa=document.getElementById('asSelAll');
-  if(sa){const t=_totalUniqueAsins(); sa.checked=AS_SEL.size>=t&&t>0; sa.indeterminate=AS_SEL.size>0&&AS_SEL.size<t;}
+  if(sa){ const vis=[...document.querySelectorAll('#asHost tr[data-ri]')]; sa.checked=vis.length>0&&vis.every(tr=>AS_SEL.has(tr.dataset.asin)); sa.indeterminate=vis.some(tr=>AS_SEL.has(tr.dataset.asin))&&!sa.checked; }
 }
-function asBulkApply(){
-  if(!AS_SEL.size){toast('Select rows first','error');return;}
-  const tag=document.getElementById('asBulkTag').value;
+function patToggleAll(el){
+  const visTrs=[...document.querySelectorAll('#asHost tr[data-ri]')];
+  if(el.checked) visTrs.forEach(tr=>AS_SEL.add(tr.dataset.asin));
+  else visTrs.forEach(tr=>AS_SEL.delete(tr.dataset.asin));
+  visTrs.forEach(tr=>{ const cb=tr.querySelector('.pat-rowchk'); if(cb) cb.checked=el.checked; });
+  updateAsinCounts();
+}
+function patBulkSet(tag){
+  if(!AS_SEL.size){toast('Select ASINs first','error');return;}
   AS_SEL.forEach(asin=>{
     if(tag) AS_TAGS[asin]=tag; else delete AS_TAGS[asin];
     document.querySelectorAll(`#asHost select.cp-tagsel[data-asin="${asin}"]`).forEach(s=>s.value=tag||'');
   });
   updateAsinCounts();
-  toast(`Applied to ${AS_SEL.size} ASIN(s)`,'success');
-}
-function bulkAsin(tag){
-  if(!AS_DATA||!AS_DATA.rows) return;
-  const q=(document.getElementById('asFilter').value||'').toLowerCase();
-  AS_DATA.rows.forEach(row=>{
-    const rowTxt=row.map(v=>(v==null?'':String(v))).join(' ').toLowerCase();
-    if(q&&!rowTxt.includes(q)) return;
-    _rowAsins(row).forEach(asin=>{if(tag) AS_TAGS[asin]=tag; else delete AS_TAGS[asin];});
-  });
-  renderAsinGrid();
+  toast(`${tag||'Cleared'} → ${AS_SEL.size} ASIN(s)`,'success');
+  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
 function updateAsinCounts(){
   const c={};
@@ -745,11 +734,15 @@ function updateAsinCounts(){
 }
 async function saveAsinTags(){
   const btn=document.getElementById('asSave'); btn.disabled=true; btn.textContent='Saving…';
-  try{ const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json());
-    toast(r.success?`Saved (${r.count} tagged)`:'Save failed', r.success?'success':'error');
+  try{
+    const [r1,r2]=await Promise.all([
+      fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json()),
+      fetch(`/campaign/projects/${PID}/pat-flat-edits`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:PAT_EDITS})}).then(r=>r.json()),
+    ]);
+    toast(r1.success&&r2.success?`Saved (${r1.count} tagged)`:'Save failed',r1.success&&r2.success?'success':'error');
+    if(r1.success&&r2.success) btn.textContent='Save selections';
   }catch(e){ toast('Network error','error'); }
-  finally{ btn.disabled=false; btn.textContent='Save selections'; }
+  finally{ btn.disabled=false; }
 }
 
 // ---- Assemble preview (semantics / master / campaigns / build) ----
@@ -843,9 +836,12 @@ function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
 function cpSelAll(kind,el){
-  const g=GRIDS[kind]; g.selected=new Set();
-  if(el.checked) g.rows.forEach((_,i)=>g.selected.add(i));
-  document.querySelectorAll(`#${g.host} tr[data-ri] .cp-rowchk`).forEach(cb=>cb.checked=el.checked);
+  const g=GRIDS[kind];
+  const visTrs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
+  const visRis=visTrs.map(tr=>+tr.dataset.ri);
+  if(el.checked) visRis.forEach(i=>g.selected.add(i));
+  else visRis.forEach(i=>g.selected.delete(i));
+  visTrs.forEach(tr=>{const cb=tr.querySelector('.cp-rowchk');if(cb) cb.checked=el.checked;});
 }
 function cpSelRow(kind,ri,el,event){
   const g=GRIDS[kind], st=el.checked;
@@ -864,8 +860,12 @@ function cpSelRow(kind,ri,el,event){
   } else { if(st) g.selected.add(ri); else g.selected.delete(ri); }
   g._lastSel=ri;
   const sa=document.querySelector(`#${g.host} .cp-selall`);
-  if(sa){ sa.checked=g.selected.size===g.rows.length&&g.rows.length>0;
-    sa.indeterminate=g.selected.size>0&&g.selected.size<g.rows.length; }
+  if(sa){
+    const vis=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none').map(tr=>+tr.dataset.ri);
+    const allV=vis.length>0&&vis.every(i=>g.selected.has(i));
+    const someV=vis.some(i=>g.selected.has(i));
+    sa.checked=allV; sa.indeterminate=someV&&!allV;
+  }
 }
 function cpApplyBulk(kind,field,val){
   const g=GRIDS[kind];

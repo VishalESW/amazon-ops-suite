@@ -513,6 +513,111 @@ def save_asin_tags(pid):
     return jsonify({"success": True, "count": len(tags)})
 
 
+@bp.route("/projects/<pid>/pat-flat", methods=["GET"])
+def get_pat_flat(pid):
+    """Flat deduplicated ASIN list from Y/Competitor keywords in SQP, BA, and POE uploads."""
+    if not cdb.get_project(pid):
+        abort(404)
+
+    ALLOWED = {"sqp", "ba", "poe"}
+    SRC_LABEL = {"sqp": "SQP", "ba": "Brand Analytics", "poe": "POE"}
+
+    uploads = cdb.get_state(pid, "uploads", [])
+    sels = cdb.get_state(pid, "selections", {})
+    asin_tags = cdb.get_state(pid, "asin_tags", {})
+    flat_edits = cdb.get_state(pid, "pat_flat_edits", {})
+
+    # Build CVR map from h10/str/ba/brand raw files
+    cvr_by_kw = {}
+    for u in uploads:
+        src = u.get("source", "")
+        if src not in ("h10", "str", "ba", "brand"):
+            continue
+        path = cstore.raw_path(pid, u["filekey"])
+        if not path or not os.path.exists(path):
+            continue
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            fs = FileStorage(stream=io.BytesIO(data), filename=u["filename"])
+            df = orch.read_table_smart(fs, src)
+            cvr_by_kw.update(orch.extract_cvr_by_kw(df, src))
+        except Exception:
+            pass
+
+    seen = {}  # asin -> row dict; first occurrence wins
+
+    for u in uploads:
+        src = u.get("source", "")
+        if src not in ALLOWED:
+            continue
+        if not u.get("has_grid"):
+            continue
+        file_sels = sels.get(u["filekey"], {})
+        y_comp = {int(ri): tag for ri, tag in file_sels.items() if tag in ("Y", "Competitor")}
+        if not y_comp:
+            continue
+        grid = cstore.load_parsed(pid, u["filekey"])
+        if not grid:
+            continue
+        rows = grid["rows"]
+        kc = grid.get("keyword_col")
+        asin_cols = grid.get("asin_cols", [])
+        columns = grid.get("columns", [])
+
+        # Try to find a "7 Day Total Orders" or "Purchases - Total" metric column
+        orders_ci = None
+        for ci, col in enumerate(columns):
+            cl = col.strip().lower()
+            if ("7 day" in cl and "order" in cl) or ("purchase" in cl and "total" in cl):
+                orders_ci = ci
+                break
+
+        for ridx in y_comp:
+            try:
+                row = rows[ridx]
+            except IndexError:
+                continue
+            kw = str(row[kc]).strip() if kc is not None and kc < len(row) else ""
+            orders = str(row[orders_ci]).strip() if orders_ci is not None and orders_ci < len(row) else ""
+            cvr = cvr_by_kw.get(kw.lower(), "")
+
+            for ci in asin_cols:
+                if ci >= len(row):
+                    continue
+                m = orch._ASIN_RE.search(str(row[ci] or "").strip())
+                if not m:
+                    continue
+                asin = m.group(0).upper()
+                if asin in seen:
+                    continue
+                seen[asin] = {
+                    "asin": asin,
+                    "source": SRC_LABEL.get(src, src.upper()),
+                    "keyword": kw,
+                    "orders": orders,
+                    "cvr": cvr,
+                    "type": asin_tags.get(asin, ""),
+                    "cpc": "",
+                    "acos_pct": "",
+                    "product": "",
+                    "placement_mod": "",
+                    "asp": "",
+                    "acos_target": "",
+                }
+
+    return jsonify({"success": True, "rows": list(seen.values()), "edits": flat_edits})
+
+
+@bp.route("/projects/<pid>/pat-flat-edits", methods=["POST"])
+def save_pat_flat_edits(pid):
+    if not cdb.get_project(pid):
+        abort(404)
+    body = request.get_json(silent=True) or {}
+    cdb.save_state(pid, "pat_flat_edits", body.get("edits", {}))
+    return jsonify({"success": True})
+
+
 # --------------------------------------------------- assemble / build -------
 @bp.route("/projects/<pid>/assemble")
 def assemble_preview(pid):
