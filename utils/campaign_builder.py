@@ -267,6 +267,17 @@ def assemble(pid):
     inp.semantics_rows = sem_rows
 
     # ---- PAT targets + MKL ASIN buckets ------------------------------------
+    # Per-ASIN PAT-sheet inputs from the ASIN-selection grid (title/source/
+    # product/asp/acos overrides). Blank fields fall back to the defaults.
+    asin_names = state.get("asin_names") or {}
+    asin_pat = state.get("asin_pat") or {}
+
+    def _num(v, dflt):
+        try:
+            return float(str(v).replace(",", "").replace("%", "").strip())
+        except (TypeError, ValueError):
+            return dflt
+
     pat_targets, pat_types = [], []
     for asin, tag in asin_tags.items():
         if tag not in PAT_BUCKET:
@@ -274,8 +285,15 @@ def assemble(pid):
         getattr(inp, PAT_BUCKET[tag]).append(asin)
         if tag not in pat_types:
             pat_types.append(tag)
-        pat_targets.append({"asin": asin, "type": tag, "source": "Competitor",
-                            "product": default_product, "asp": default_asp, "acos": DEFAULT_ACOS})
+        m = asin_pat.get(asin) or {}
+        pat_targets.append({
+            "asin": asin, "type": tag,
+            "title": asin_names.get(asin, ""),
+            "source": m.get("source") or "Competitor",
+            "product": m.get("product") or default_product,
+            "asp": _num(m.get("asp"), default_asp),
+            "acos": _num(m.get("acos"), DEFAULT_ACOS),
+        })
     _apply_grid_edits(pat_targets, state.get("pat_edits") or {}, PAT_NUMERIC)
     inp.pat_targets = pat_targets
 

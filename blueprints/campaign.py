@@ -506,7 +506,8 @@ def get_asin_tags_r(pid):
         abort(404)
     return jsonify({"success": True,
                     "tags": cdb.get_state(pid, "asin_tags", {}),
-                    "names": cdb.get_state(pid, "asin_names", {})})
+                    "names": cdb.get_state(pid, "asin_names", {}),
+                    "meta": cdb.get_state(pid, "asin_pat", {})})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["POST"])
@@ -523,6 +524,19 @@ def save_asin_tags(pid):
         names.update(body.get("names", {}))
         names = {k: v for k, v in names.items() if v}
         cdb.save_state(pid, "asin_names", names)
+    if "meta" in body:
+        # Per-ASIN PAT-sheet inputs: {asin: {source,product,asp,acos}}. Drop
+        # entries where every field is blank so state stays lean.
+        meta = cdb.get_state(pid, "asin_pat", {})
+        for asin, m in (body.get("meta") or {}).items():
+            cur = meta.get(asin, {})
+            cur.update({k: v for k, v in m.items()})
+            cur = {k: v for k, v in cur.items() if v not in ("", None)}
+            if cur:
+                meta[asin] = cur
+            else:
+                meta.pop(asin, None)
+        cdb.save_state(pid, "asin_pat", meta)
     return jsonify({"success": True, "count": len(tags)})
 
 
@@ -689,9 +703,17 @@ def get_pat_all_asins(pid):
     uploads = cdb.get_state(pid, "uploads", [])
     asin_tags = cdb.get_state(pid, "asin_tags", {})
     asin_names = cdb.get_state(pid, "asin_names", {})
+    asin_pat = cdb.get_state(pid, "asin_pat", {})  # {asin: {source,product,asp,acos}}
 
     asin_state = cdb.get_state(pid, "asins") or {}
-    name_by_asin = {p["asin"]: p.get("name", "") for p in (asin_state.get("products") or [])}
+    products_all = asin_state.get("products") or []
+    name_by_asin = {p["asin"]: p.get("name", "") for p in products_all}
+    # Defaults mirror campaign_builder.assemble (first selected product / ASP).
+    selected = set(asin_state.get("selected") or [p["asin"] for p in products_all])
+    chosen = [p for p in products_all if p["asin"] in selected] or products_all
+    default_product = chosen[0].get("name", "") if chosen else ""
+    default_asp = next((p.get("asp") for p in chosen if p.get("asp")), 24.95) or 24.95
+    default_acos = 0.30
 
     # asin -> first non-empty product title found across all files
     asin_to_title = {}
@@ -741,17 +763,26 @@ def get_pat_all_asins(pid):
                         if title:
                             asin_to_title[asin] = title
 
-    asins_out = sorted([
-        {
+    def _row(asin, title):
+        m = asin_pat.get(asin) or {}
+        return {
             "asin": asin,
             # Priority: user-saved name > AdLabs product name > file-sourced title
             "product_name": asin_names.get(asin) or name_by_asin.get(asin, "") or title,
             "tag": asin_tags.get(asin, ""),
+            # Per-ASIN PAT-sheet inputs (saved overrides; blank = use default placeholder)
+            "source": m.get("source", ""),
+            "product": m.get("product", ""),
+            "asp": m.get("asp", ""),
+            "acos": m.get("acos", ""),
         }
-        for asin, title in asin_to_title.items()
-    ], key=lambda x: x["asin"])
 
-    return jsonify({"success": True, "asins": asins_out})
+    asins_out = sorted([_row(asin, title) for asin, title in asin_to_title.items()],
+                       key=lambda x: x["asin"])
+
+    return jsonify({"success": True, "asins": asins_out,
+                    "defaults": {"source": "Competitor", "product": default_product,
+                                 "asp": default_asp, "acos": default_acos}})
 
 
 @bp.route("/projects/<pid>/pat-row-edits", methods=["POST"])
