@@ -642,6 +642,26 @@ def get_pat_table(pid, filekey):
     asin_cols = grid.get("asin_cols", [])
     all_rows = grid["rows"]
 
+    # Fallback when keyword_col wasn't auto-detected (e.g. BA file with niche name
+    # as the column header instead of "Search Term").
+    if kc is None:
+        kw_toks = ("search term", "keyword phrase", "search query", "keyword")
+        for tok in kw_toks:
+            for i, c in enumerate(columns):
+                if tok in c.lower():
+                    kc = i
+                    break
+            if kc is not None:
+                break
+        if kc is None and columns:
+            # BA files always have a rank-like column first; search term is col 1.
+            col0 = columns[0].lower()
+            kc = 1 if ("frequency" in col0 or "rank" in col0 or "sfr" in col0) and len(columns) > 1 else 0
+
+    # Fallback: derive asin_cols from column names if parsing missed them.
+    if not asin_cols:
+        asin_cols = [i for i, c in enumerate(columns) if "asin" in c.lower()]
+
     orders_ci = None
     for ci, col in enumerate(columns):
         cl = col.strip().lower()

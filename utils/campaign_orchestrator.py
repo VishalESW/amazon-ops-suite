@@ -372,6 +372,14 @@ def parse_upload(file_storage, source, raw_df=None):
                 break
         if kw_idx is not None:
             break
+    # Fallback: BA/batst files use "Search Frequency Rank" as col 0 and the
+    # search term as col 1, even when the column isn't named "Search Term".
+    if kw_idx is None and low:
+        col0 = low[0]
+        if ("frequency" in col0 or "rank" in col0 or "sfr" in col0) and len(low) > 1:
+            kw_idx = 1
+        else:
+            kw_idx = 0
     asin_cols = [i for i, c in enumerate(low) if "asin" in c]
     brand_cols = [i for i, c in enumerate(low) if "brand" in c]
     rows = df.astype(object).where(df.notna(), "").values.tolist()
