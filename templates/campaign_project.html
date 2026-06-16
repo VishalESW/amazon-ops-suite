@@ -608,16 +608,6 @@ async function saveKw(){
 
 // ---- ASIN selection (PAT) — flat combined view (all SQP / BA / POE files) ----
 const PAT_OPTS=['Main','Low Rated','High Priced','Bestselling','Non-relevant'];
-GRIDS.pat={
-  host:'asHost',
-  cols:[
-    ['asin','ASIN','asin_link'],
-    ['product_name','Product Title','edit'],
-    ['tag','Tag Type','sel',null,PAT_OPTS],
-  ],
-  rows:[], edits:{}, dirty:false, asinChoices:[],
-  saveUrl:`/campaign/projects/${PID}/asin-tags`,
-};
 if(STEP==='asin_sel') initPat();
 async function initPat(){
   try{
@@ -625,6 +615,16 @@ async function initPat(){
       fetch(`/campaign/projects/${PID}/pat-all-asins`).then(r=>r.json()),
       fetch(`/campaign/projects/${PID}/asin-tags`).then(r=>r.json()).catch(()=>({tags:{},names:{}})),
     ]);
+    GRIDS.pat={
+      host:'asHost',
+      cols:[
+        ['asin','ASIN','asin_link'],
+        ['product_name','Product Title','edit'],
+        ['tag','Tag Type','sel',null,PAT_OPTS],
+      ],
+      rows:[], edits:{}, dirty:false, asinChoices:[],
+      saveUrl:`/campaign/projects/${PID}/asin-tags`,
+    };
     const tags=tg.tags||{}, names=tg.names||{};
     if(!flat.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load ASINs.</p>'; return; }
     GRIDS.pat.rows=(flat.asins||[]).map(a=>({
