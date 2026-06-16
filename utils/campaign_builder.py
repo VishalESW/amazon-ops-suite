@@ -134,6 +134,7 @@ def assemble(pid):
     # ---- Passthrough tabs + per-keyword search volume + CVR ----------------
     sv_by_kw = {}
     cvr_by_kw = {}   # str values; STR overrides H10/BA (processed last wins)
+    str_metrics = {}  # {kw_lower: {orders,cpc,acos}} from the Search Term Report
     for u in uploads:
         src = u["source"]
         fs = _fs(pid, u)
@@ -171,6 +172,7 @@ def assemble(pid):
             df = orch.read_table_smart(fs, "str")
             inp.str_table = orch._canonicalize(df, orch.STR_CANON)
             cvr_by_kw.update(orch.extract_cvr_by_kw(df, "str"))  # STR wins
+            str_metrics.update(orch.extract_str_metrics_by_kw(df))
 
     # ---- Walk selections: Y -> Semantics, Competitor/Brand -> Master KW ----
     y_kws, comp_searches, comp_names = [], [], []
@@ -261,6 +263,11 @@ def assemble(pid):
             "sv": int(round(sv)) if sv else 0,
             # Conversion Rate — from H10 ABA Total Conv. Share or STR CVR column.
             "cvr": cvr_by_kw.get(kw.lower(), ""),
+            # Orders / CPC / ACoS — looked up per keyword in the Search Term
+            # Report; shown read-only while the workbook keeps the live formula.
+            "orders": (str_metrics.get(kw.lower()) or {}).get("orders", ""),
+            "cpc": (str_metrics.get(kw.lower()) or {}).get("cpc", ""),
+            "acos": (str_metrics.get(kw.lower()) or {}).get("acos", ""),
         })
     _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC,
                       skip_empty={"category"})

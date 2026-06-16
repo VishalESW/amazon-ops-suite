@@ -344,6 +344,36 @@ def extract_cvr_by_kw(df, source):
     return out
 
 
+def extract_str_metrics_by_kw(df):
+    """Return {keyword_lower: {orders, cpc, acos}} from a Search Term Report.
+
+    Mirrors the Semantics sheet's per-keyword XLOOKUPs into the STR
+    (D=Orders col U, E=CPC col S, F=ACoS col Q). Values are raw strings.
+    """
+    if df is None or df.empty:
+        return {}
+    kw_col = _find_col(df, "search term")
+    orders_col = _find_col(df, "7 day total orders", "total orders", "orders")
+    cpc_col = _find_col(df, "cpc", "cost per click")
+    acos_col = _find_col(df, "acos")
+    if kw_col is None:
+        return {}
+    out = {}
+    for _, row in df.iterrows():
+        k = str(row.get(kw_col, "")).strip().lower()
+        if not k:
+            continue
+        def _g(col):
+            if col is None:
+                return ""
+            v = str(row.get(col, "")).strip()
+            return "" if v.lower() in ("", "nan", "none") else v
+        rec = {"orders": _g(orders_col), "cpc": _g(cpc_col), "acos": _g(acos_col)}
+        if any(rec.values()):
+            out.setdefault(k, rec)
+    return out
+
+
 # Keyword-column tokens per source (for the selection grids).
 _KW_TOKENS = ("search term", "keyword phrase", "search query", "keyword")
 

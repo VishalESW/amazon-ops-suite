@@ -873,6 +873,11 @@ def assemble_preview(pid):
         "asp": s.get("asp", ""),                    # R
         "acos_target": s.get("acos_target", ""),    # S
         "cvr": s.get("cvr", ""),                    # Conversion Rate (read-only)
+        # Orders / CPC / ACoS — STR per-keyword lookup (read-only preview;
+        # workbook keeps the live formula). Blank when no STR is uploaded.
+        "orders": s.get("orders", ""),              # D
+        "cpc": s.get("cpc", ""),                    # E
+        "acos": s.get("acos", ""),                  # F
         # computed (read-only) — shown as the SV-rule suggestion placeholder
         "_auto_kw_type": s.get("kw_type", ""), "_auto_match": s.get("match", ""),
     } for s in inp.semantics_rows]
