@@ -305,7 +305,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     <section class="cp-card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div><h2 class="text-lg font-semibold">ASIN selection (PAT)</h2>
-          <p class="text-sm text-muted-foreground">Full PAT sheet for every unique ASIN from your <strong>SQP</strong>, <strong>Brand Analytics</strong>, and <strong>POE</strong> files. Tag each ASIN, set its title / product / ASP / ACoS; <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas computed in the workbook. Use the ▾ on any header to sort / filter.</p></div>
+          <p class="text-sm text-muted-foreground">Full PAT sheet for every unique ASIN from your <strong>SQP</strong>, <strong>Brand Analytics</strong>, and <strong>POE</strong> files. Tag each ASIN with its category type; Source / Title / Product / ASP / ACoS are auto-filled and <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas computed in the workbook. Use the ▾ on any header to sort / filter.</p></div>
         <button onclick="advanceTo('master')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Master Keywords</button>
       </div>
       <div class="flex flex-wrap items-center gap-2 mb-2">
@@ -620,7 +620,7 @@ async function initPat(){
     GRIDS.pat={
       host:'asHost',
       cols:[
-        ['source','Source','edit','_ph_source'],
+        ['source','Source','rotext'],
         ['asin','ASIN','asin_link'],
         ['product_name','Title','rotext'],
         [null,'URL','f'],
@@ -629,11 +629,11 @@ async function initPat(){
         [null,'ACoS','f'],
         [null,'Conversion Rate','f'],
         ['tag','ASIN Cat Type','sel',null,PAT_OPTS],
-        ['product','Product Name','edit','_ph_product'],
+        ['product','Product Name','rotext'],
         [null,'Campaign Name','f'],
         [null,'Placement Mod.','f'],
-        ['asp','ASP','edit','_ph_asp'],
-        ['acos','ACoS Target','edit','_ph_acos'],
+        ['asp','ASP','ro'],
+        ['acos','ACoS Target','ro'],
         [null,'Conv. Rate (calc)','f'],
         [null,'Starting Bid','f'],
       ],
@@ -642,15 +642,17 @@ async function initPat(){
     };
     const tags=tg.tags||{}, names=tg.names||{};
     if(!flat.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load ASINs.</p>'; return; }
+    // Source / Product / ASP / ACoS are auto-fetched read-only defaults (the
+    // same values assemble() applies at build); per-ASIN saved values win.
     const d=flat.defaults||{};
     GRIDS.pat.rows=(flat.asins||[]).map(a=>({
       asin:a.asin,
       product_name:names[a.asin]||a.product_name||'',
       tag:tags[a.asin]||a.tag||'',
-      source:a.source||'', product:a.product||'', asp:a.asp||'', acos:a.acos||'',
-      // faint placeholder hints = the default applied at build when left blank
-      _ph_source:d.source||'Competitor', _ph_product:d.product||'',
-      _ph_asp:(d.asp!=null?String(d.asp):''), _ph_acos:(d.acos!=null?String(d.acos):''),
+      source:a.source||d.source||'Competitor',
+      product:a.product||d.product||'',
+      asp:(a.asp!==''&&a.asp!=null)?a.asp:(d.asp!=null?d.asp:''),
+      acos:(a.acos!==''&&a.acos!=null)?a.acos:(d.acos!=null?d.acos:''),
     }));
     renderPatFile();
   }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
@@ -688,7 +690,9 @@ function copyPatAsins(){
 async function saveAsinTags(){
   const g=GRIDS.pat;
   const btn=document.getElementById('patSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
-  const tags={}, names={}, meta={};
+  // Only the tag and the (auto-filled) title are persisted; Source / Product /
+  // ASP / ACoS are read-only defaults that assemble() re-derives at build time.
+  const tags={}, names={};
   const val=(e,row,f)=>(e[f]!=null)?e[f]:(row[f]||'');
   (g.rows||[]).forEach((row,ri)=>{
     const e=g.edits[ri]||{};
@@ -697,14 +701,10 @@ async function saveAsinTags(){
     const name=val(e,row,'product_name');
     if(tag) tags[asin]=tag;
     if(name) names[asin]=name;
-    // Per-ASIN PAT inputs — only send non-blank so defaults stay in effect
-    const m={source:val(e,row,'source'), product:val(e,row,'product'),
-             asp:val(e,row,'asp'), acos:val(e,row,'acos')};
-    if(m.source||m.product||m.asp||m.acos) meta[asin]=m;
   });
   try{
     const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tags,names,meta})}).then(r=>r.json());
+      body:JSON.stringify({tags,names})}).then(r=>r.json());
     toast(r.success?`Saved (${r.count||0} tagged)`:'Save failed',r.success?'success':'error');
     if(r.success){ if(btn) btn.textContent='Save selections'; g.dirty=false; }
   }catch(e){ toast('Network error','error'); }
