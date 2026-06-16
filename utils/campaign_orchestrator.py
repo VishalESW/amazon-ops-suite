@@ -313,6 +313,36 @@ def _extract(df, source):
     return _candidates(df, source, kw_tok, vol_tok, ann)
 
 
+def extract_cvr_by_kw(df, source):
+    """Return {keyword_lower: cvr_string} from a processed DataFrame.
+
+    Pulls "ABA Total Conv. Share" from H10/Brand, or "CVR" / "Conversion Rate"
+    from STR / BA.  Returns the raw string value so no normalisation is needed.
+    """
+    if df is None or df.empty:
+        return {}
+    if source in ("h10", "brand"):
+        kw_col = _find_col(df, "keyword phrase", "keyword")
+        cvr_col = _find_col(df, "aba total conv", "conv. share", "conv share")
+    elif source in ("str",):
+        kw_col = _find_col(df, "search term")
+        cvr_col = _find_col(df, "cvr", "conversion rate")
+    elif source in ("ba", "batst"):
+        kw_col = _find_col(df, "search term", "keyword phrase", "keyword")
+        cvr_col = _find_col(df, "cvr", "conversion rate")
+    else:
+        return {}
+    if kw_col is None or cvr_col is None:
+        return {}
+    out = {}
+    for _, row in df.iterrows():
+        k = str(row.get(kw_col, "")).strip().lower()
+        v = str(row.get(cvr_col, "")).strip()
+        if k and v and v not in ("", "nan", "none", "0", "0.0"):
+            out.setdefault(k, v)
+    return out
+
+
 # Keyword-column tokens per source (for the selection grids).
 _KW_TOKENS = ("search term", "keyword phrase", "search query", "keyword")
 
@@ -523,14 +553,20 @@ def generate(form, files, out_path, categories=None):
 
 
 def _campaign_rows(sem_rows, brand, product, asp, acos, placement):
-    """One campaign row per selected keyword (mirrors the example defaults)."""
+    """One campaign row per keyword that has a manually-set KW Vol. in Semantics.
+
+    Only rows where the user filled in disp_kw_type (KW Vol. column) are included —
+    the auto SV-digit rule is no longer applied here.
+    """
     rows = []
     for s in sem_rows:
-        ktype = s["kw_type"]
-        camp_type = "SPM"  # Sponsored Products Manual
+        ktype = (s.get("disp_kw_type") or "").strip()
+        match = (s.get("disp_match") or "").strip()
+        if not ktype:
+            continue  # skip: no manual KW Vol. entry
         rows.append({
-            "A": "Create", "B": s.get("product") or product, "C": camp_type,
-            "E": ktype, "F": s["match"], "G": s["keyword"], "H": "Rank",
+            "A": "Create", "B": s.get("product") or product, "C": "SPM",
+            "E": ktype, "F": match, "G": s["keyword"], "H": "Rank",
             "J": brand, "K": 5, "L": "Any Date Range", "M": "Manual Targeting",
             "P": "Fixed Bids", "Q": placement, "S": placement,
             "U": s.get("product") or product, "V": "Keyword Targeting",

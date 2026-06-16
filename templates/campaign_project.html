@@ -314,6 +314,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         {% endfor %}
         <button onclick="bulkAsin('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
         <span id="asCounts" class="text-xs text-muted-foreground ml-auto"></span>
+        <button onclick="copyPatAsins()" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-semibold hover:bg-accent transition">Copy ASINs</button>
         <button onclick="saveAsinTags()" id="asSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
       </div>
       <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Select a file above to begin.</p></div>
@@ -325,6 +326,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         <div><h2 class="text-lg font-semibold">Semantics — editable sheet view</h2>
           <p class="text-sm text-muted-foreground">All columns are editable; filter any column. <strong>KW Vol.</strong>, <strong>Match Type</strong> &amp; <strong>Broad KW List</strong> are blank by default — fill them in here and they flow into the generated file. Search volume &amp; bids stay live formulas.</p></div>
         <div class="flex items-center gap-2">
+          <button onclick="copyKeywords()" class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition">Copy Keywords</button>
           <button id="semSaveBtn" onclick="saveGridEdits('sem')" class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition">Save edits</button>
           <button onclick="advanceTo('asin_sel')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to ASIN selection</button>
         </div>
@@ -347,7 +349,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     <section class="cp-card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div><h2 class="text-lg font-semibold">Campaign Naming &amp; Bids preview</h2>
-          <p class="text-sm text-muted-foreground">Generated campaigns (keyword + PAT). Names follow the sheet formula; bids compute live from CVR.</p></div>
+          <p class="text-sm text-muted-foreground">Campaigns from your manual <strong>KW Vol.</strong> entries in Semantics (+ PAT). Keywords without a KW Vol. entry are excluded. Names follow the sheet formula; bids compute live from CVR.</p></div>
         <button onclick="advanceTo('build')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Verify &amp; Build</button>
       </div>
       <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
@@ -608,7 +610,7 @@ const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'
 if(STEP==='asin_sel') initAsin();
 async function initAsin(){
   const r=await fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json());
-  AS_UP=(r.uploads||[]).filter(u=>(u.asin_cols||[]).length>0);
+  AS_UP=(r.uploads||[]).filter(u=>(u.asin_cols||[]).length>0 && u.has_y_or_comp);
   const host=document.getElementById('asFiles');
   if(!AS_UP.length){ host.innerHTML='<p class="text-sm text-muted-foreground">No files with ASIN columns. Go back to Uploads.</p>'; return; }
   host.innerHTML=AS_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openAsinFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
@@ -814,7 +816,7 @@ function editableGrid(kind){
       const [f,l,type,phf]=c;
       if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
       const v=(f&&row[f]!=null)?row[f]:'';
-      if(type==='ro') return `<td class="cp-ro num">${esc(v)}</td>`;
+      if(type==='ro') return `<td class="cp-ro num">${(v===''||v==null)?'—':esc(v)}</td>`;
       if(type==='select_asin'){
         const opts=`<option value="">—</option>`+asinChoices.map(a=>
           `<option value="${esc(a.asin)}"${String(v)===a.asin?' selected':''}>${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,28)):''}</option>`
@@ -951,6 +953,20 @@ function cpSort(kind,ci,dir){ const g=GRIDS[kind];
   trs.forEach(tr=>tbody.appendChild(tr));   // reattach in order (keeps inputs + data-ri)
   cpCloseFilter();
 }
+function copyKeywords(){
+  const kws=(GRIDS.sem&&GRIDS.sem.rows||[]).map(r=>r.keyword||'').filter(Boolean);
+  if(!kws.length){toast('No keywords to copy','error');return;}
+  navigator.clipboard.writeText(kws.join('\n')).then(
+    ()=>toast(`Copied ${kws.length} keyword(s)`,'success'),
+    ()=>toast('Copy failed — try selecting and copying manually','error'));
+}
+function copyPatAsins(){
+  const asins=Object.entries(AS_TAGS).filter(([,t])=>t&&t!=='Non-relevant').map(([a])=>a);
+  if(!asins.length){toast('No tagged ASINs to copy','error');return;}
+  navigator.clipboard.writeText(asins.join('\n')).then(
+    ()=>toast(`Copied ${asins.length} ASIN(s)`,'success'),
+    ()=>toast('Copy failed — try selecting and copying manually','error'));
+}
 async function saveGridEdits(kind){ const g=GRIDS[kind];
   const btn=document.getElementById(kind+'SaveBtn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
   try{
@@ -975,7 +991,7 @@ function renderSemantics(){
       [null,'Orders (7d)','f'],
       [null,'CPC','f'],
       [null,'ACoS','f'],
-      [null,'Conversion Rate','f'],
+      ['cvr','Conversion Rate','ro'],
       ['ctr','CTR','edit'],
       ['category','Root KW','edit'],
       ['disp_kw_type','KW Vol.','edit','_auto_kw_type'],
@@ -994,7 +1010,7 @@ function renderSemantics(){
     asinChoices:(ASM.products||[]),
   };
   document.getElementById('asmHost').innerHTML=
-    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint text in KW Vol./Match = the SV-rule suggestion · check rows then use column header inputs to bulk-edit</p>`+
+    `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint placeholder text in <strong>KW Vol.</strong> / <strong>Match Type</strong> = SV-rule hint (reference only — only your manual entries drive campaigns) · check rows then use column header inputs to bulk-edit</p>`+
     editableGrid('sem');
 }
 function renderMaster(){

@@ -263,7 +263,12 @@ def _label_for(source, filename):
 def get_uploads(pid):
     if not cdb.get_project(pid):
         abort(404)
-    return jsonify({"success": True, "uploads": cdb.get_state(pid, "uploads", [])})
+    uploads = cdb.get_state(pid, "uploads", [])
+    sels = cdb.get_state(pid, "selections", {})
+    for u in uploads:
+        file_sels = sels.get(u["filekey"], {})
+        u["has_y_or_comp"] = any(v in ("Y", "Competitor") for v in file_sels.values())
+    return jsonify({"success": True, "uploads": uploads})
 
 
 @bp.route("/projects/<pid>/uploads", methods=["POST"])
@@ -531,6 +536,7 @@ def assemble_preview(pid):
         "placement_mod": s.get("placement_mod", ""),# Q
         "asp": s.get("asp", ""),                    # R
         "acos_target": s.get("acos_target", ""),    # S
+        "cvr": s.get("cvr", ""),                    # Conversion Rate (read-only)
         # computed (read-only) — shown as the SV-rule suggestion placeholder
         "_auto_kw_type": s.get("kw_type", ""), "_auto_match": s.get("match", ""),
     } for s in inp.semantics_rows]

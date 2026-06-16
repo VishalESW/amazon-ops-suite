@@ -127,8 +127,9 @@ def assemble(pid):
     default_asin = inp.products[0]["asin"] if inp.products else ""
     default_asp = next((pr.get("asp") for pr in chosen if pr.get("asp")), DEFAULT_ASP) or DEFAULT_ASP
 
-    # ---- Passthrough tabs + per-keyword search volume ----------------------
+    # ---- Passthrough tabs + per-keyword search volume + CVR ----------------
     sv_by_kw = {}
+    cvr_by_kw = {}   # str values; STR overrides H10/BA (processed last wins)
     for u in uploads:
         src = u["source"]
         fs = _fs(pid, u)
@@ -142,10 +143,12 @@ def assemble(pid):
             df = orch.read_table_smart(fs, "h10")
             inp.h10_table = orch._canonicalize(df, orch.H10_CANON)
             _collect_sv(sv_by_kw, orch._extract(df, "H10"))
+            cvr_by_kw.update(orch.extract_cvr_by_kw(df, "h10"))
         elif src == "ba":
             df = orch.read_table_smart(fs, "ba")
             inp.brand_analytics_table = orch._rows(df)
             _collect_sv(sv_by_kw, orch._extract(df, "BA"))
+            cvr_by_kw.update(orch.extract_cvr_by_kw(df, "ba"))
         elif src == "sqp":
             df = orch.read_table_smart(fs, "sqp")
             # Prefer an ASIN from the filename; else a short index so the SQP tab
@@ -157,11 +160,13 @@ def assemble(pid):
             df = orch.read_table_smart(fs, "brand")
             inp.brand_table = orch._rows(df)
             _collect_sv(sv_by_kw, orch._extract(df, "Brand"))
+            cvr_by_kw.update(orch.extract_cvr_by_kw(df, "brand"))
         elif src == "batst":
             inp.ba_tst[u["label"]] = orch._rows(orch.read_table_smart(fs, "batst"))
         elif src == "str":
             df = orch.read_table_smart(fs, "str")
             inp.str_table = orch._canonicalize(df, orch.STR_CANON)
+            cvr_by_kw.update(orch.extract_cvr_by_kw(df, "str"))  # STR wins
 
     # ---- Walk selections: Y -> Semantics, Competitor/Brand -> Master KW ----
     y_kws, comp_searches, comp_names = [], [], []
@@ -232,6 +237,8 @@ def assemble(pid):
             # Search Volume (monthly) — shown read-only in the sheet view; the
             # workbook keeps the live SV formula in column C.
             "sv": int(round(sv)) if sv else 0,
+            # Conversion Rate — from H10 ABA Total Conv. Share or STR CVR column.
+            "cvr": cvr_by_kw.get(kw.lower(), ""),
         })
     _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC)
     inp.semantics_rows = sem_rows
