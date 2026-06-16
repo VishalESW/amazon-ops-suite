@@ -715,6 +715,29 @@ def get_pat_all_asins(pid):
     default_asp = next((p.get("asp") for p in chosen if p.get("asp")), 24.95) or 24.95
     default_acos = 0.30
 
+    # Conversion rate per ASIN — mirrors the PAT sheet's H column
+    # =XLOOKUP(asin, 'Search Term Report'!A:A, …!R:R): look the ASIN up in the
+    # STR (PT report search terms are ASINs). cvr_calc replicates the P column
+    # =IF(H>1, H/100, H) so a % like 14.3 becomes the 0.143 fraction.
+    cvr_by_asin = {}
+    for u in uploads:
+        if u.get("source") != "str":
+            continue
+        path = cstore.raw_path(pid, u.get("filekey"))
+        if not path or not os.path.exists(path):
+            continue
+        with open(path, "rb") as f:
+            fs = FileStorage(stream=io.BytesIO(f.read()), filename=u.get("filename"))
+        df = orch.read_table_smart(fs, "str")
+        cvr_by_asin.update(orch.extract_cvr_by_kw(df, "str"))
+
+    def _cvr_calc(v):
+        try:
+            f = float(str(v).replace("%", "").replace(",", "").strip())
+        except (TypeError, ValueError):
+            return ""
+        return round(f / 100, 4) if f > 1 else round(f, 4)
+
     # asin -> first non-empty product title found across all files
     asin_to_title = {}
 
@@ -765,6 +788,7 @@ def get_pat_all_asins(pid):
 
     def _row(asin, title):
         m = asin_pat.get(asin) or {}
+        raw_cvr = cvr_by_asin.get(asin.lower(), "")
         return {
             "asin": asin,
             # Priority: user-saved name > AdLabs product name > file-sourced title
@@ -775,6 +799,9 @@ def get_pat_all_asins(pid):
             "product": m.get("product", ""),
             "asp": m.get("asp", ""),
             "acos": m.get("acos", ""),
+            # Conversion rate (col H, raw lookup) + calc (col P, normalized fraction)
+            "cvr": raw_cvr,
+            "cvr_calc": _cvr_calc(raw_cvr),
         }
 
     asins_out = sorted([_row(asin, title) for asin, title in asin_to_title.items()],

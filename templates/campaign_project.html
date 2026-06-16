@@ -627,14 +627,14 @@ async function initPat(){
         [null,'Orders (7d)','f'],
         [null,'CPC','f'],
         [null,'ACoS','f'],
-        [null,'Conversion Rate','f'],
+        ['cvr','Conversion Rate','ro'],
         ['tag','ASIN Cat Type','sel',null,PAT_OPTS],
         ['product','Product Name','rotext'],
         [null,'Campaign Name','f'],
         [null,'Placement Mod.','f'],
         ['asp','ASP','ro'],
         ['acos','ACoS Target','ro'],
-        [null,'Conv. Rate (calc)','f'],
+        ['cvr_calc','Conv. Rate (calc)','ro'],
         [null,'Starting Bid','f'],
       ],
       rows:[], edits:{}, dirty:false, asinChoices:[],
@@ -653,6 +653,7 @@ async function initPat(){
       product:a.product||d.product||'',
       asp:(a.asp!==''&&a.asp!=null)?a.asp:(d.asp!=null?d.asp:''),
       acos:(a.acos!==''&&a.acos!=null)?a.acos:(d.acos!=null?d.acos:''),
+      cvr:a.cvr||'', cvr_calc:(a.cvr_calc!==''&&a.cvr_calc!=null)?a.cvr_calc:'',
     }));
     renderPatFile();
   }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
