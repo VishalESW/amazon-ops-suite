@@ -59,6 +59,7 @@ SOURCE_TOKENS = {
 # More-specific fragments come before ambiguous ones (e.g. "brand analytics" before "brand").
 _SHEET_NAME_SOURCE = [
     ("product opportunity explorer", "poe"),
+    ("niche", "poe"),
     ("poe", "poe"),
     ("brand analytics", "ba"),
     ("brand_analytics", "ba"),
