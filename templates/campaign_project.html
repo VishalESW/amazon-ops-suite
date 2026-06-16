@@ -317,7 +317,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         <button onclick="patBulkSet('')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">Clear</button>
         <span id="asCounts" class="text-xs text-muted-foreground ml-auto"></span>
         <button onclick="copyPatAsins()" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-semibold hover:bg-accent transition">Copy ASINs</button>
-        <button onclick="saveAsinTags()" id="asSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
+        <button onclick="saveAsinTags()" id="patSaveBtn" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
       </div>
       <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Loading…</p></div>
     </section>
@@ -607,8 +607,17 @@ async function saveKw(){
 }
 
 // ---- ASIN selection (PAT) — flat combined view (all SQP / BA / POE files) ----
-let PAT_DATA=null, AS_TAGS={}, AS_NAMES={}, AS_SEL=new Set(), AS_LAST_CHK=null;
-const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
+const PAT_OPTS=['Main','Low Rated','High Priced','Bestselling','Non-relevant'];
+GRIDS.pat={
+  host:'asHost',
+  cols:[
+    ['asin','ASIN','asin_link'],
+    ['product_name','Product Title','edit'],
+    ['tag','Tag Type','sel',null,PAT_OPTS],
+  ],
+  rows:[], edits:{}, dirty:false, asinChoices:[],
+  saveUrl:`/campaign/projects/${PID}/asin-tags`,
+};
 if(STEP==='asin_sel') initPat();
 async function initPat(){
   try{
@@ -616,109 +625,65 @@ async function initPat(){
       fetch(`/campaign/projects/${PID}/pat-all-asins`).then(r=>r.json()),
       fetch(`/campaign/projects/${PID}/asin-tags`).then(r=>r.json()).catch(()=>({tags:{},names:{}})),
     ]);
-    AS_TAGS=tg.tags||{}; AS_NAMES=tg.names||{};
+    const tags=tg.tags||{}, names=tg.names||{};
     if(!flat.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load ASINs.</p>'; return; }
-    PAT_DATA=flat;
+    GRIDS.pat.rows=(flat.asins||[]).map(a=>({
+      asin:a.asin,
+      product_name:names[a.asin]||a.product_name||'',
+      tag:tags[a.asin]||a.tag||'',
+    }));
     renderPatFile();
   }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
 }
 function renderPatFile(){
-  const host=document.getElementById('asHost');
-  const asins=(PAT_DATA&&PAT_DATA.asins)||[];
-  if(!asins.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in uploaded files.</p>'; return; }
-  const q=(document.getElementById('asFilter').value||'').toLowerCase();
-  const head=`<tr>
-    <th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onclick="patToggleAll(this)"> <span style="font-size:.72rem">#</span></th>
-    <th>ASIN</th>
-    <th>Product Title</th>
-    <th>Tag Type</th>
-  </tr>`;
-  let body='',vis=0;
-  asins.forEach(row=>{
-    const asin=row.asin;
-    const curTag=AS_TAGS[asin]||row.tag||'';
-    const curName=AS_NAMES[asin]||row.product_name||'';
-    const rowTxt=[asin,curTag,curName].join(' ').toLowerCase();
-    if(q&&!rowTxt.includes(q)) return;
-    vis++;
-    const checked=AS_SEL.has(asin);
-    const opts=`<option value="">—</option>${PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}" ${o===curTag?'selected':''}>${esc(o)}</option>`).join('')}`;
-    body+=`<tr data-asin="${esc(asin)}">
-      <td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="pat-rowchk" data-asin="${esc(asin)}" ${checked?'checked':''} onclick="patSelRow('${esc(asin)}',this,event)"> <span class="text-muted-foreground" style="font-size:.72rem">${vis}</span></td>
-      <td><a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="text-primary underline font-mono text-xs">${esc(asin)}</a></td>
-      <td><input class="cp-cell-inp" value="${esc(curName)}" placeholder="Add product title…" oninput="patSetName('${esc(asin)}',this.value)"></td>
-      <td><select class="cp-tagsel" data-asin="${esc(asin)}" onchange="patSetType('${esc(asin)}',this.value)">${opts}</select></td>
-    </tr>`;
-  });
-  host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
-  updateAsinCounts();
-}
-function patSetName(asin,val){
-  if(val) AS_NAMES[asin]=val; else delete AS_NAMES[asin];
-  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
-}
-function patSetType(asin,val){
-  if(val) AS_TAGS[asin]=val; else delete AS_TAGS[asin];
-  updateAsinCounts();
-  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
-}
-function patSelRow(asin,el,event){
-  const st=el.checked;
-  if(event&&event.shiftKey&&AS_LAST_CHK!==null){
-    const visTrs=[...document.querySelectorAll('#asHost tr[data-asin]')];
-    const asinList=visTrs.map(tr=>tr.dataset.asin);
-    const posA=asinList.indexOf(AS_LAST_CHK),posB=asinList.indexOf(asin);
-    if(posA!==-1&&posB!==-1){
-      const lo=Math.min(posA,posB),hi=Math.max(posA,posB);
-      asinList.slice(lo,hi+1).forEach(a=>{
-        const tr=document.querySelector(`#asHost tr[data-asin="${a}"]`); if(!tr) return;
-        const cb=tr.querySelector('.pat-rowchk'); if(!cb) return;
-        cb.checked=st;
-        if(st) AS_SEL.add(a); else AS_SEL.delete(a);
-      });
-    }
-  } else { if(st) AS_SEL.add(asin); else AS_SEL.delete(asin); }
-  AS_LAST_CHK=asin;
-  updateAsinCounts();
-  const sa=document.getElementById('asSelAll');
-  if(sa){ const vis=[...document.querySelectorAll('#asHost tr[data-asin]')]; sa.checked=vis.length>0&&vis.every(tr=>AS_SEL.has(tr.dataset.asin)); sa.indeterminate=vis.some(tr=>AS_SEL.has(tr.dataset.asin))&&!sa.checked; }
-}
-function patToggleAll(el){
-  const visTrs=[...document.querySelectorAll('#asHost tr[data-asin]')];
-  if(el.checked) visTrs.forEach(tr=>AS_SEL.add(tr.dataset.asin));
-  else visTrs.forEach(tr=>AS_SEL.delete(tr.dataset.asin));
-  visTrs.forEach(tr=>{ const cb=tr.querySelector('.pat-rowchk'); if(cb) cb.checked=el.checked; });
+  const g=GRIDS.pat;
+  const host=document.getElementById(g.host);
+  if(!g.rows.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in uploaded files.</p>'; return; }
+  host.innerHTML=editableGrid('pat');
   updateAsinCounts();
 }
 function patBulkSet(tag){
-  if(!AS_SEL.size){ toast('Select rows first','error'); return; }
-  AS_SEL.forEach(asin=>{
-    patSetType(asin,tag);
-    document.querySelectorAll(`#asHost select.cp-tagsel[data-asin="${asin}"]`).forEach(s=>s.value=tag||'');
-  });
-  toast(`${tag||'Cleared'} → ${AS_SEL.size} ASIN(s)`,'success');
+  const g=GRIDS.pat;
+  if(!g.selected||!g.selected.size){ toast('Select rows first','error'); return; }
+  cpApplyBulk('pat','tag',tag);
+  updateAsinCounts();
 }
 function updateAsinCounts(){
+  const g=GRIDS.pat;
   const c={};
-  Object.values(AS_TAGS).forEach(v=>{ if(v) c[v]=(c[v]||0)+1; });
-  const el=document.getElementById('asCounts'); if(el) el.textContent=PAT_OPTS.slice(1).map(t=>`${t} ${c[t]||0}`).join(' · ');
+  (g.rows||[]).forEach((row,ri)=>{
+    const e=g.edits[ri]; const tag=(e&&e.tag!=null)?e.tag:row.tag;
+    if(tag) c[tag]=(c[tag]||0)+1;
+  });
+  const el=document.getElementById('asCounts'); if(el) el.textContent=PAT_OPTS.map(t=>`${t}: ${c[t]||0}`).join(' · ');
 }
 function copyPatAsins(){
-  if(!AS_SEL.size){ toast('Select rows first','error'); return; }
-  const arr=[...AS_SEL];
+  const g=GRIDS.pat;
+  if(!g.selected||!g.selected.size){ toast('Select rows first','error'); return; }
+  const arr=[...g.selected].map(ri=>(g.rows[ri]||{}).asin).filter(Boolean);
   navigator.clipboard.writeText(arr.join('\n')).then(
     ()=>toast(`Copied ${arr.length} ASIN(s)`,'success'),
     ()=>toast('Copy failed','error'));
 }
 async function saveAsinTags(){
-  const btn=document.getElementById('asSave'); btn.disabled=true; btn.textContent='Saving…';
+  const g=GRIDS.pat;
+  const btn=document.getElementById('patSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  const tags={}, names={};
+  (g.rows||[]).forEach((row,ri)=>{
+    const e=g.edits[ri]||{};
+    const asin=row.asin;
+    const tag=(e.tag!=null)?e.tag:row.tag;
+    const name=(e.product_name!=null)?e.product_name:row.product_name;
+    if(tag) tags[asin]=tag;
+    if(name) names[asin]=name;
+  });
   try{
     const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tags:AS_TAGS,names:AS_NAMES})}).then(r=>r.json());
+      body:JSON.stringify({tags,names})}).then(r=>r.json());
     toast(r.success?`Saved (${r.count||0} tagged)`:'Save failed',r.success?'success':'error');
-    if(r.success) btn.textContent='Save selections';
+    if(r.success){ if(btn) btn.textContent='Save selections'; g.dirty=false; }
   }catch(e){ toast('Network error','error'); }
-  finally{ btn.disabled=false; }
+  finally{ if(btn) btn.disabled=false; }
 }
 
 // ---- Assemble preview (semantics / master / campaigns / build) ----
@@ -758,7 +723,7 @@ function editableGrid(kind){
   const chkTh=`<th class="cp-chk-col cp-sticky-l" style="z-index:3;background:hsl(var(--muted))"><input type="checkbox" class="cp-selall" title="Select all" onchange="cpSelAll('${kind}',this)"></th>`;
   const colThs=g.cols.map((c,ci)=>{
     const [f,l,type]=c;
-    const isEdit=(type==='edit'||type==='select_asin');
+    const isEdit=(type==='edit'||type==='select_asin'||type==='sel');
     let bulkRow='';
     if(isEdit&&f){
       const bid=`cpBulk_${kind}_${ci}`;
@@ -766,6 +731,10 @@ function editableGrid(kind){
       if(type==='select_asin'){
         bulkInp=`<select class="cp-bulk-input" id="${bid}"><option value="">—</option>`+
           asinChoices.map(a=>`<option value="${esc(a.asin)}">${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,22)):''}</option>`).join('')+`</select>`;
+      } else if(type==='sel'){
+        const choices=c[4]||[];
+        bulkInp=`<select class="cp-bulk-input" id="${bid}"><option value="">—</option>`+
+          choices.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')+`</select>`;
       } else {
         bulkInp=`<input class="cp-bulk-input" id="${bid}" placeholder="bulk value…">`;
       }
@@ -786,6 +755,12 @@ function editableGrid(kind){
       if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
       const v=(f&&row[f]!=null)?row[f]:'';
       if(type==='ro') return `<td class="cp-ro num">${(v===''||v==null)?'—':esc(v)}</td>`;
+      if(type==='asin_link') return `<td><a href="https://www.amazon.com/dp/${esc(v)}" target="_blank" class="text-primary underline font-mono text-xs">${esc(v)}</a></td>`;
+      if(type==='sel'){
+        const choices=c[4]||[];
+        const opts=`<option value="">—</option>`+choices.map(o=>`<option value="${esc(o)}"${String(v)===o?' selected':''}>${esc(o)}</option>`).join('');
+        return `<td class="cp-edit"><select class="cp-asinsel" onchange="cpEdit('${kind}',${ri},'${f}',this.value)">${opts}</select></td>`;
+      }
       if(type==='select_asin'){
         const opts=`<option value="">—</option>`+asinChoices.map(a=>
           `<option value="${esc(a.asin)}"${String(v)===a.asin?' selected':''}>${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,28)):''}</option>`
