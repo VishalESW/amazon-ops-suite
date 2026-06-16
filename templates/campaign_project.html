@@ -675,7 +675,7 @@ function renderAsinGrid(){
         tds+=`<td class="cp-kwcol">${asin?`<div style="display:flex;flex-direction:column;gap:.15rem">${asinSelect(asin,tag)}<span class="text-muted-foreground" style="font-size:.68rem;line-height:1.2" title="${esc(pname)}">${esc(pname.slice(0,32))}${pname.length>32?'…':''}</span></div>`:'<span class="text-muted-foreground">—</span>'}</td>`;
       }
     });
-    body+=`<tr>${tds}</tr>`;
+    body+=`<tr data-ri="${ri}">${tds}</tr>`;
   });
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`+
     (AS_DATA.truncated?`<p class="text-xs text-muted-foreground mt-2">First ${rows.length} of ${AS_DATA.total} row(s) shown.</p>`:'');
