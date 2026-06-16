@@ -740,6 +740,12 @@ def get_pat_all_asins(pid):
 
     # asin -> first non-empty product title found across all files
     asin_to_title = {}
+    # asin -> conversion rate from the source row where it appears (POE/BA/SQP).
+    # A regular STR holds keyword search terms, not ASINs, so the workbook's
+    # STR lookup is usually empty for competitor ASINs — fall back to the
+    # conversion rate of the file row that surfaced the ASIN.
+    asin_to_cvr = {}
+    CVR_TOKENS = ("conversion rate", "conversion share", "cvr")
 
     for u in uploads:
         if u.get("source") not in ALLOWED or not u.get("has_grid"):
@@ -768,7 +774,14 @@ def get_pat_all_asins(pid):
                         title_col_map[ci] = ti
                         break
 
+        # Conversion-rate column for this file (first header matching a CVR token).
+        cvr_col = next((i for i, cl in enumerate(col_lows)
+                        if any(tok in cl for tok in CVR_TOKENS)), None)
+
         for row in grid["rows"]:
+            row_cvr = ""
+            if cvr_col is not None and cvr_col < len(row):
+                row_cvr = str(row[cvr_col] or "").strip()
             for ci in asin_cols:
                 if ci >= len(row):
                     continue
@@ -785,10 +798,14 @@ def get_pat_all_asins(pid):
                         title = str(row[ti] or "").strip()
                         if title:
                             asin_to_title[asin] = title
+                # Fill conversion rate on the first row that has one for this ASIN
+                if not asin_to_cvr.get(asin) and row_cvr and row_cvr.lower() not in ("nan", "none", "0", "0.0"):
+                    asin_to_cvr[asin] = row_cvr
 
     def _row(asin, title):
         m = asin_pat.get(asin) or {}
-        raw_cvr = cvr_by_asin.get(asin.lower(), "")
+        # STR lookup wins (workbook-faithful); else the source-file conversion rate.
+        raw_cvr = cvr_by_asin.get(asin.lower(), "") or asin_to_cvr.get(asin, "")
         return {
             "asin": asin,
             # Priority: user-saved name > AdLabs product name > file-sourced title
