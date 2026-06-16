@@ -705,7 +705,7 @@ function patRowEdit(ridx,field,val,ri){
     const row=(PAT_DATA&&PAT_DATA.rows||[]).find(r=>r.ridx===ridx);
     const e=PAT_ROW_EDITS[String(ridx)]||{};
     const el=document.getElementById(`pat-bid-${ri}`);
-    if(el) el.textContent=_patBid(e.asp??row&&row.asp??'',e.acos_target??row&&row.acos_target??'',row&&row.cvr??'');
+    if(el) el.textContent=_patBid(e.asp??(row&&row.asp||''),e.acos_target??(row&&row.acos_target||''),row&&row.cvr||'');
   }
   const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
