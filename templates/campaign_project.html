@@ -305,12 +305,11 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     <section class="cp-card p-5">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div><h2 class="text-lg font-semibold">ASIN selection (PAT)</h2>
-          <p class="text-sm text-muted-foreground">Shows Y &amp; Competitor rows from <strong>SQP</strong>, <strong>Brand Analytics</strong>, and <strong>POE</strong> files only. Tag each row's ASIN Cat Type to build PAT campaigns.</p></div>
+          <p class="text-sm text-muted-foreground">All unique ASINs from your <strong>SQP</strong>, <strong>Brand Analytics</strong>, and <strong>POE</strong> files. Tag each ASIN to build PAT campaigns. Add a product title to identify competitors.</p></div>
         <button onclick="advanceTo('master')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to Master Keywords</button>
       </div>
-      <div id="asFiles" class="flex flex-wrap gap-2 mb-3"></div>
       <div class="flex flex-wrap items-center gap-2 mb-2">
-        <input id="asFilter" oninput="renderPatFile()" placeholder="Filter any column…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
+        <input id="asFilter" oninput="renderPatFile()" placeholder="Filter ASIN or product…" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ring">
         <span class="text-xs text-muted-foreground">Bulk set selected:</span>
         {% for t in ['Main','Low Rated','High Priced','Bestselling','Non-relevant'] %}
         <button onclick="patBulkSet('{{ t }}')" class="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-accent transition">{{ t }}</button>
@@ -320,7 +319,7 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         <button onclick="copyPatAsins()" class="rounded-md border border-input bg-background px-3 py-1.5 text-sm font-semibold hover:bg-accent transition">Copy ASINs</button>
         <button onclick="saveAsinTags()" id="asSave" class="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Save selections</button>
       </div>
-      <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Select a file above to begin.</p></div>
+      <div id="asHost"><p class="text-sm text-muted-foreground py-8 text-center">Loading…</p></div>
     </section>
 
     {% elif cur == 'semantics' %}
@@ -607,70 +606,56 @@ async function saveKw(){
   finally{ btn.disabled=false; btn.textContent='Save selections'; }
 }
 
-// ---- ASIN selection (PAT) — file-tab view (SQP / BA / POE) ----
-let PAT_UP=[], PAT_CUR=null, PAT_DATA=null, AS_TAGS={}, AS_SEL=new Set(), AS_LAST_CHK=null;
+// ---- ASIN selection (PAT) — flat combined view (all SQP / BA / POE files) ----
+let PAT_DATA=null, AS_TAGS={}, AS_NAMES={}, AS_SEL=new Set(), AS_LAST_CHK=null;
 const PAT_OPTS=['','Main','Low Rated','High Priced','Bestselling','Non-relevant'];
 if(STEP==='asin_sel') initPat();
 async function initPat(){
   try{
-    const [upl,tg]=await Promise.all([
-      fetch(`/campaign/projects/${PID}/uploads`).then(r=>r.json()),
-      fetch(`/campaign/projects/${PID}/asin-tags`).then(r=>r.json()).catch(()=>({tags:{}})),
+    const [flat,tg]=await Promise.all([
+      fetch(`/campaign/projects/${PID}/pat-all-asins`).then(r=>r.json()),
+      fetch(`/campaign/projects/${PID}/asin-tags`).then(r=>r.json()).catch(()=>({tags:{},names:{}})),
     ]);
-    AS_TAGS=tg.tags||{};
-    PAT_UP=(upl.uploads||[]).filter(u=>['sqp','ba','poe'].includes(u.source)&&u.has_grid);
-    const host=document.getElementById('asFiles');
-    if(!PAT_UP.length){
-      host.innerHTML='<p class="text-sm text-muted-foreground">No SQP, Brand Analytics, or POE files uploaded. Upload files in the Keywords step.</p>';
-      return;
-    }
-    host.innerHTML=PAT_UP.map((u,i)=>`<button class="cp-filetab" data-i="${i}" data-on="0" onclick="openPatFile(${i})">${esc(u.label)} <span class="text-muted-foreground">(${u.source})</span></button>`).join('');
-    openPatFile(0);
+    AS_TAGS=tg.tags||{}; AS_NAMES=tg.names||{};
+    if(!flat.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load ASINs.</p>'; return; }
+    PAT_DATA=flat;
+    renderPatFile();
   }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
-}
-async function openPatFile(i){
-  PAT_CUR=PAT_UP[i];
-  document.querySelectorAll('#asFiles .cp-filetab').forEach(b=>b.setAttribute('data-on',b.dataset.i==i?'1':'0'));
-  document.getElementById('asHost').innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">Loading…</p>';
-  AS_SEL=new Set(); AS_LAST_CHK=null;
-  const r=await fetch(`/campaign/projects/${PID}/pat-table/${PAT_CUR.filekey}`).then(r=>r.json()).catch(()=>({success:false}));
-  if(!r.success){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Failed to load</p>'; return; }
-  PAT_DATA=r;
-  renderPatFile();
 }
 function renderPatFile(){
   const host=document.getElementById('asHost');
   const asins=(PAT_DATA&&PAT_DATA.asins)||[];
-  if(!asins.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in this file.</p>'; return; }
+  if(!asins.length){ host.innerHTML='<p class="text-sm text-muted-foreground py-8 text-center">No ASINs found in uploaded files.</p>'; return; }
   const q=(document.getElementById('asFilter').value||'').toLowerCase();
   const head=`<tr>
     <th class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" id="asSelAll" title="Select all" onclick="patToggleAll(this)"> <span style="font-size:.72rem">#</span></th>
     <th>ASIN</th>
-    <th>Appears In</th>
-    <th style="text-align:center">Count</th>
+    <th>Product Title</th>
     <th>Tag Type</th>
   </tr>`;
   let body='',vis=0;
   asins.forEach(row=>{
-    const curTag=AS_TAGS[row.asin]||row.tag||'';
-    const rowTxt=[row.asin,curTag,(row.cols||[]).join(' ')].join(' ').toLowerCase();
+    const asin=row.asin;
+    const curTag=AS_TAGS[asin]||row.tag||'';
+    const curName=AS_NAMES[asin]||row.product_name||'';
+    const rowTxt=[asin,curTag,curName].join(' ').toLowerCase();
     if(q&&!rowTxt.includes(q)) return;
     vis++;
-    const checked=AS_SEL.has(row.asin);
+    const checked=AS_SEL.has(asin);
     const opts=`<option value="">—</option>${PAT_OPTS.filter(o=>o).map(o=>`<option value="${o}" ${o===curTag?'selected':''}>${esc(o)}</option>`).join('')}`;
-    // Shorten col names: strip leading "N-" rank prefix and trailing "ASIN"
-    const colsShort=(row.cols||[]).map(c=>c.replace(/^\d+-?\s*/,'').replace(/\basins?\b\s*/i,'').replace(/\s+/g,' ').trim()).filter(Boolean).join(', ');
-    const asin=row.asin;
     body+=`<tr data-asin="${esc(asin)}">
       <td class="cp-sticky-l" style="min-width:50px;text-align:center"><input type="checkbox" class="pat-rowchk" data-asin="${esc(asin)}" ${checked?'checked':''} onclick="patSelRow('${esc(asin)}',this,event)"> <span class="text-muted-foreground" style="font-size:.72rem">${vis}</span></td>
       <td><a href="https://www.amazon.com/dp/${esc(asin)}" target="_blank" class="text-primary underline font-mono text-xs">${esc(asin)}</a></td>
-      <td class="text-xs text-muted-foreground">${esc(colsShort||'—')}</td>
-      <td style="text-align:center" class="text-xs">${row.count}</td>
+      <td><input class="cp-cell-inp" value="${esc(curName)}" placeholder="Add product title…" oninput="patSetName('${esc(asin)}',this.value)"></td>
       <td><select class="cp-tagsel" data-asin="${esc(asin)}" onchange="patSetType('${esc(asin)}',this.value)">${opts}</select></td>
     </tr>`;
   });
   host.innerHTML=`<div class="cp-tablewrap"><table class="cp-grid"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
   updateAsinCounts();
+}
+function patSetName(asin,val){
+  if(val) AS_NAMES[asin]=val; else delete AS_NAMES[asin];
+  const b=document.getElementById('asSave'); if(b) b.textContent='Save selections *';
 }
 function patSetType(asin,val){
   if(val) AS_TAGS[asin]=val; else delete AS_TAGS[asin];
@@ -728,7 +713,8 @@ function copyPatAsins(){
 async function saveAsinTags(){
   const btn=document.getElementById('asSave'); btn.disabled=true; btn.textContent='Saving…';
   try{
-    const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:AS_TAGS})}).then(r=>r.json());
+    const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tags:AS_TAGS,names:AS_NAMES})}).then(r=>r.json());
     toast(r.success?`Saved (${r.count||0} tagged)`:'Save failed',r.success?'success':'error');
     if(r.success) btn.textContent='Save selections';
   }catch(e){ toast('Network error','error'); }

@@ -504,7 +504,9 @@ def asin_table(pid, filekey):
 def get_asin_tags_r(pid):
     if not cdb.get_project(pid):
         abort(404)
-    return jsonify({"success": True, "tags": cdb.get_state(pid, "asin_tags", {})})
+    return jsonify({"success": True,
+                    "tags": cdb.get_state(pid, "asin_tags", {}),
+                    "names": cdb.get_state(pid, "asin_names", {})})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["POST"])
@@ -514,9 +516,13 @@ def save_asin_tags(pid):
     body = request.get_json(silent=True) or {}
     tags = cdb.get_state(pid, "asin_tags", {})
     tags.update(body.get("tags", {}))
-    # drop cleared entries
     tags = {k: v for k, v in tags.items() if v}
     cdb.save_state(pid, "asin_tags", tags)
+    if "names" in body:
+        names = cdb.get_state(pid, "asin_names", {})
+        names.update(body.get("names", {}))
+        names = {k: v for k, v in names.items() if v}
+        cdb.save_state(pid, "asin_names", names)
     return jsonify({"success": True, "count": len(tags)})
 
 
@@ -672,6 +678,52 @@ def get_pat_table(pid, filekey):
 
     col_names = [columns[i] for i in asin_cols if i < len(columns)]
     return jsonify({"success": True, "asins": asins_out, "col_names": col_names})
+
+
+@bp.route("/projects/<pid>/pat-all-asins")
+def get_pat_all_asins(pid):
+    """Flat deduplicated ASIN list from all SQP/BA/POE files with product names."""
+    if not cdb.get_project(pid):
+        abort(404)
+    ALLOWED = {"sqp", "ba", "poe"}
+    uploads = cdb.get_state(pid, "uploads", [])
+    asin_tags = cdb.get_state(pid, "asin_tags", {})
+    asin_names = cdb.get_state(pid, "asin_names", {})
+
+    asin_state = cdb.get_state(pid, "asins") or {}
+    name_by_asin = {p["asin"]: p.get("name", "") for p in (asin_state.get("products") or [])}
+
+    seen = set()
+    asins_out = []
+    for u in uploads:
+        if u.get("source") not in ALLOWED or not u.get("has_grid"):
+            continue
+        grid = cstore.load_parsed(pid, u["filekey"])
+        if not grid:
+            continue
+        columns = grid.get("columns", [])
+        asin_cols = grid.get("asin_cols", [])
+        if not asin_cols:
+            asin_cols = [i for i, c in enumerate(columns) if "asin" in c.lower()]
+        for row in grid["rows"]:
+            for ci in asin_cols:
+                if ci >= len(row):
+                    continue
+                m = orch._ASIN_RE.search(str(row[ci] or "").strip())
+                if not m:
+                    continue
+                asin = m.group(0).upper()
+                if asin in seen:
+                    continue
+                seen.add(asin)
+                asins_out.append({
+                    "asin": asin,
+                    "product_name": asin_names.get(asin) or name_by_asin.get(asin, ""),
+                    "tag": asin_tags.get(asin, ""),
+                })
+
+    asins_out.sort(key=lambda x: x["asin"])
+    return jsonify({"success": True, "asins": asins_out})
 
 
 @bp.route("/projects/<pid>/pat-row-edits", methods=["POST"])
