@@ -622,7 +622,7 @@ async function initPat(){
       cols:[
         ['source','Source','edit','_ph_source'],
         ['asin','ASIN','asin_link'],
-        ['product_name','Title','edit'],
+        ['product_name','Title','rotext'],
         [null,'URL','f'],
         [null,'Orders (7d)','f'],
         [null,'CPC','f'],
@@ -780,6 +780,7 @@ function editableGrid(kind){
       if(type==='f') return '<td class="cp-fcol" title="Live formula — computes when you open the workbook">ƒ</td>';
       const v=(f&&row[f]!=null)?row[f]:'';
       if(type==='ro') return `<td class="cp-ro num">${(v===''||v==null)?'—':esc(v)}</td>`;
+      if(type==='rotext') return `<td class="cp-ro" title="${esc(v)}">${(v===''||v==null)?'—':esc(v)}</td>`;
       if(type==='asin_link') return `<td><a href="https://www.amazon.com/dp/${esc(v)}" target="_blank" class="text-primary underline font-mono text-xs">${esc(v)}</a></td>`;
       if(type==='sel'){
         const choices=c[4]||[];
