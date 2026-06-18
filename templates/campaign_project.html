@@ -631,6 +631,7 @@ async function initPat(){
         ['cvr','Conversion Rate','ro'],
         ['tag','ASIN Cat Type','sel',null,PAT_OPTS],
         ['product','Product Name','rotext'],
+        ['product_asin','Product ASIN','select_asin'],
         [null,'Campaign Name','f'],
         [null,'Placement Mod.','f'],
         ['asp','ASP','ro'],
@@ -638,7 +639,7 @@ async function initPat(){
         ['cvr_calc','Conv. Rate (calc)','ro'],
         [null,'Starting Bid','f'],
       ],
-      rows:[], edits:{}, dirty:false, asinChoices:[],
+      rows:[], edits:{}, dirty:false, asinChoices:(flat.products||[]),
       saveUrl:`/campaign/projects/${PID}/asin-tags`,
     };
     const tags=tg.tags||{}, names=tg.names||{};
@@ -655,6 +656,7 @@ async function initPat(){
       asp:(a.asp!==''&&a.asp!=null)?a.asp:(d.asp!=null?d.asp:''),
       acos:(a.acos!==''&&a.acos!=null)?a.acos:(d.acos!=null?d.acos:''),
       cvr:a.cvr||'', cvr_calc:(a.cvr_calc!==''&&a.cvr_calc!=null)?a.cvr_calc:'',
+      product_asin:a.product_asin||'',
     }));
     renderPatFile();
   }catch(e){ document.getElementById('asHost').innerHTML='<p class="text-sm text-danger py-8 text-center">Network error.</p>'; }
@@ -694,7 +696,7 @@ async function saveAsinTags(){
   const btn=document.getElementById('patSaveBtn'); if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
   // Only the tag and the (auto-filled) title are persisted; Source / Product /
   // ASP / ACoS are read-only defaults that assemble() re-derives at build time.
-  const tags={}, names={};
+  const tags={}, names={}, meta={};
   const val=(e,row,f)=>(e[f]!=null)?e[f]:(row[f]||'');
   (g.rows||[]).forEach((row,ri)=>{
     const e=g.edits[ri]||{};
@@ -703,10 +705,13 @@ async function saveAsinTags(){
     const name=val(e,row,'product_name');
     if(tag) tags[asin]=tag;
     if(name) names[asin]=name;
+    // Product ASIN — the own product this competitor ASIN is targeted for.
+    const pa=val(e,row,'product_asin');
+    if(pa) meta[asin]={product_asin:pa};
   });
   try{
     const r=await fetch(`/campaign/projects/${PID}/asin-tags`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({tags,names})}).then(r=>r.json());
+      body:JSON.stringify({tags,names,meta})}).then(r=>r.json());
     toast(r.success?`Saved (${r.count||0} tagged)`:'Save failed',r.success?'success':'error');
     if(r.success){ if(btn) btn.textContent='Save selections'; g.dirty=false; }
   }catch(e){ toast('Network error','error'); }

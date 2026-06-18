@@ -819,12 +819,16 @@ def get_pat_all_asins(pid):
             # Conversion rate (col H, raw lookup) + calc (col P, normalized fraction)
             "cvr": raw_cvr,
             "cvr_calc": _cvr_calc(raw_cvr),
+            # Own product this competitor ASIN is targeted for (dropdown selection)
+            "product_asin": m.get("product_asin", ""),
         }
 
     asins_out = sorted([_row(asin, title) for asin, title in asin_to_title.items()],
                        key=lambda x: x["asin"])
 
-    return jsonify({"success": True, "asins": asins_out,
+    products = [{"asin": p["asin"], "name": p.get("name", ""), "sku": p.get("sku", "")}
+                for p in chosen]
+    return jsonify({"success": True, "asins": asins_out, "products": products,
                     "defaults": {"source": "Competitor", "product": default_product,
                                  "asp": default_asp, "acos": default_acos}})
 

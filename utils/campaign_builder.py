@@ -278,6 +278,8 @@ def assemble(pid):
     # product/asp/acos overrides). Blank fields fall back to the defaults.
     asin_names = state.get("asin_names") or {}
     asin_pat = state.get("asin_pat") or {}
+    # own product ASIN -> name, so a Product-ASIN pick drives the Product Name.
+    own_name_by_asin = {pr["asin"]: pr.get("name", "") for pr in products_all}
 
     def _num(v, dflt):
         try:
@@ -293,11 +295,13 @@ def assemble(pid):
         if tag not in pat_types:
             pat_types.append(tag)
         m = asin_pat.get(asin) or {}
+        # A selected own Product ASIN sets the Product Name for this target.
+        prod = m.get("product") or own_name_by_asin.get(m.get("product_asin")) or default_product
         pat_targets.append({
             "asin": asin, "type": tag,
             "title": asin_names.get(asin, ""),
             "source": m.get("source") or "Competitor",
-            "product": m.get("product") or default_product,
+            "product": prod,
             "asp": _num(m.get("asp"), default_asp),
             "acos": _num(m.get("acos"), DEFAULT_ACOS),
         })
