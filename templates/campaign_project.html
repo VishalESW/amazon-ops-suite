@@ -802,7 +802,7 @@ function editableGrid(kind){
       return `<td class="cp-edit${isKw?' cp-kw-cell':''}">`+
         `<input class="cp-cellinput"${wAttr} value="${esc(v)}" `+
         (ph?`placeholder="${esc(ph)}" `:'')+
-        `${onInp}></td>`;
+        `${onInp} onpaste="cpPaste('${kind}',${ri},'${f}',event)"></td>`;
     }).join('');
     return `<tr data-ri="${ri}">${chkTd}${cells}</tr>`;
   }).join('');
@@ -812,6 +812,32 @@ function editableGrid(kind){
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
+// Spreadsheet paste-down: multiline clipboard fills one value per row, starting
+// at the pasted cell and going down the visible rows of the same column.
+function cpPaste(kind,ri,field,e){
+  const cd=e.clipboardData||window.clipboardData;
+  const txt=cd?(cd.getData('text')||''):'';
+  const lines=txt.split(/\r\n|\r|\n/);
+  while(lines.length>1&&lines[lines.length-1]==='') lines.pop();
+  if(lines.length<=1) return;                 // single value: default paste
+  e.preventDefault();
+  const g=GRIDS[kind];
+  const trs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
+  const start=trs.findIndex(tr=>+tr.dataset.ri===ri);
+  if(start<0) return;
+  const ci=g.cols.findIndex(c=>c[0]===field);
+  lines.forEach((line,k)=>{
+    const tr=trs[start+k]; if(!tr) return;
+    const rri=+tr.dataset.ri;
+    (g.edits[rri]=g.edits[rri]||{})[field]=line;
+    const cell=tr.children[ci+(g.domOffset||0)];
+    const inp=cell&&cell.querySelector('input.cp-cellinput');
+    if(inp){ inp.value=line; if(field==='keyword') inp.style.width=(Math.max(20,line.length+2))+'ch'; }
+  });
+  g.dirty=true;
+  const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *';
+  toast(`Pasted ${lines.length} value(s) down`,'success');
+}
 function cpSelAll(kind,el){
   const g=GRIDS[kind];
   const visTrs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
