@@ -134,6 +134,7 @@ def assemble(pid):
     # ---- Passthrough tabs + per-keyword search volume + CVR ----------------
     sv_by_kw = {}
     cvr_by_kw = {}   # str values; STR overrides H10/BA (processed last wins)
+    poe_cvr_by_kw = {}  # POE "Search Conversion Rate" — preferred CVR source
     str_metrics = {}  # {kw_lower: {orders,cpc,acos}} from the Search Term Report
     for u in uploads:
         src = u["source"]
@@ -144,6 +145,7 @@ def assemble(pid):
             df = orch.read_table_smart(fs, "poe")
             inp.poe_tables[u["label"]] = orch._canonicalize(df, orch.POE_CANON)
             _collect_sv(sv_by_kw, orch._extract(df, "POE"))
+            poe_cvr_by_kw.update(orch.extract_cvr_by_kw(df, "poe"))
         elif src == "h10":
             df = orch.read_table_smart(fs, "h10")
             inp.h10_table = orch._canonicalize(df, orch.H10_CANON)
@@ -261,8 +263,9 @@ def assemble(pid):
             # Search Volume (monthly) — shown read-only in the sheet view; the
             # workbook keeps the live SV formula in column C.
             "sv": int(round(sv)) if sv else 0,
-            # Conversion Rate — from H10 ABA Total Conv. Share or STR CVR column.
-            "cvr": cvr_by_kw.get(kw.lower(), ""),
+            # Conversion Rate — POE "Search Conversion Rate" preferred; falls back
+            # to STR CVR / H10 ABA Total Conv. Share when the kw isn't in POE.
+            "cvr": poe_cvr_by_kw.get(kw.lower()) or cvr_by_kw.get(kw.lower(), ""),
             # Orders / CPC / ACoS — looked up per keyword in the Search Term
             # Report; shown read-only while the workbook keeps the live formula.
             "orders": (str_metrics.get(kw.lower()) or {}).get("orders", ""),

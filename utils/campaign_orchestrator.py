@@ -331,6 +331,9 @@ def extract_cvr_by_kw(df, source):
     elif source in ("ba", "batst"):
         kw_col = _find_col(df, "search term", "keyword phrase", "keyword")
         cvr_col = _find_col(df, "cvr", "conversion rate")
+    elif source in ("poe",):
+        kw_col = _find_col(df, "search term")
+        cvr_col = _find_col(df, "search conversion rate", "conversion rate", "cvr")
     else:
         return {}
     if kw_col is None or cvr_col is None:
