@@ -59,6 +59,8 @@ table.cp-grid td.cp-edit{ padding:0; }
 .cp-cellinput:focus{ outline:none; border-color:hsl(var(--ring)); box-shadow:0 0 0 2px hsl(var(--ring)/.3);
   background:hsl(var(--background)); }
 .cp-cellinput::placeholder{ color:hsl(var(--muted-foreground)/.5); font-style:italic; }
+.cp-cellta{ resize:vertical; overflow:hidden; white-space:pre-wrap; line-height:1.35;
+  min-width:200px; min-height:2.1rem; }
 table.cp-grid td.cp-ro{ color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.4); }
 table.cp-grid td.cp-fcol, table.cp-grid th.cp-fcol{ text-align:center; color:hsl(var(--primary)); background:hsl(var(--primary)/.06);
   font-style:italic; font-size:.78rem; }
@@ -748,7 +750,7 @@ function editableGrid(kind){
   const chkTh=`<th class="cp-chk-col cp-sticky-l" style="z-index:3;background:hsl(var(--muted))"><input type="checkbox" class="cp-selall" title="Select all" onchange="cpSelAll('${kind}',this)"></th>`;
   const colThs=g.cols.map((c,ci)=>{
     const [f,l,type]=c;
-    const isEdit=(type==='edit'||type==='select_asin'||type==='sel');
+    const isEdit=(type==='edit'||type==='edit_ml'||type==='select_asin'||type==='sel');
     let bulkRow='';
     if(isEdit&&f){
       const bid=`cpBulk_${kind}_${ci}`;
@@ -787,6 +789,11 @@ function editableGrid(kind){
         const opts=`<option value="">—</option>`+choices.map(o=>`<option value="${esc(o)}"${String(v)===o?' selected':''}>${esc(o)}</option>`).join('');
         return `<td class="cp-edit"><select class="cp-asinsel" onchange="cpEdit('${kind}',${ri},'${f}',this.value)">${opts}</select></td>`;
       }
+      if(type==='edit_ml'){
+        return `<td class="cp-edit"><textarea class="cp-cellinput cp-cellta" rows="1" `+
+          (phf&&row[phf]?`placeholder="${esc(row[phf])}" `:'')+
+          `oninput="cpEdit('${kind}',${ri},'${f}',this.value);cpAutoGrow(this)" onfocus="cpAutoGrow(this)">${esc(v)}</textarea></td>`;
+      }
       if(type==='select_asin'){
         const opts=`<option value="">—</option>`+asinChoices.map(a=>
           `<option value="${esc(a.asin)}"${String(v)===a.asin?' selected':''}>${esc(a.asin)}${a.name?' — '+esc(a.name.slice(0,28)):''}</option>`
@@ -802,7 +809,7 @@ function editableGrid(kind){
       return `<td class="cp-edit${isKw?' cp-kw-cell':''}">`+
         `<input class="cp-cellinput"${wAttr} value="${esc(v)}" `+
         (ph?`placeholder="${esc(ph)}" `:'')+
-        `${onInp} onpaste="cpPaste('${kind}',${ri},'${f}',event)"></td>`;
+        `${onInp}></td>`;
     }).join('');
     return `<tr data-ri="${ri}">${chkTd}${cells}</tr>`;
   }).join('');
@@ -812,32 +819,7 @@ function editableGrid(kind){
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
-// Spreadsheet paste-down: multiline clipboard fills one value per row, starting
-// at the pasted cell and going down the visible rows of the same column.
-function cpPaste(kind,ri,field,e){
-  const cd=e.clipboardData||window.clipboardData;
-  const txt=cd?(cd.getData('text')||''):'';
-  const lines=txt.split(/\r\n|\r|\n/);
-  while(lines.length>1&&lines[lines.length-1]==='') lines.pop();
-  if(lines.length<=1) return;                 // single value: default paste
-  e.preventDefault();
-  const g=GRIDS[kind];
-  const trs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
-  const start=trs.findIndex(tr=>+tr.dataset.ri===ri);
-  if(start<0) return;
-  const ci=g.cols.findIndex(c=>c[0]===field);
-  lines.forEach((line,k)=>{
-    const tr=trs[start+k]; if(!tr) return;
-    const rri=+tr.dataset.ri;
-    (g.edits[rri]=g.edits[rri]||{})[field]=line;
-    const cell=tr.children[ci+(g.domOffset||0)];
-    const inp=cell&&cell.querySelector('input.cp-cellinput');
-    if(inp){ inp.value=line; if(field==='keyword') inp.style.width=(Math.max(20,line.length+2))+'ch'; }
-  });
-  g.dirty=true;
-  const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *';
-  toast(`Pasted ${lines.length} value(s) down`,'success');
-}
+function cpAutoGrow(ta){ ta.style.height='auto'; ta.style.height=(ta.scrollHeight+2)+'px'; }
 function cpSelAll(kind,el){
   const g=GRIDS[kind];
   const visTrs=[...document.querySelectorAll(`#${g.host} tr[data-ri]`)].filter(tr=>tr.style.display!=='none');
@@ -993,7 +975,7 @@ function renderSemantics(){
       ['category','Root KW','edit'],
       ['disp_kw_type','KW Vol.','edit','_auto_kw_type'],
       ['disp_match','Match Type','edit','_auto_match'],
-      ['disp_broad','Broad KW List','edit'],
+      ['disp_broad','Broad KW List','edit_ml'],
       ['product','Product Name','edit'],
       ['product_asin','Product ASIN','select_asin'],
       [null,'Campaign Name','f'],
