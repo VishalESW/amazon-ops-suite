@@ -988,6 +988,9 @@ function copyKeywords(){
     ()=>toast('Copy failed — try selecting and copying manually','error'));
 }
 function cpPaste(kind,ri,field,e){
+  // Broad KW List is a multi-line cell: a multi-keyword paste should land entirely
+  // in the one selected cell, NOT spread down rows. Allow the browser's default paste.
+  if(field==='disp_broad') return;
   // Spreadsheet paste-down: a multi-line clipboard fills consecutive visible rows
   // in this column, starting at the cell pasted into (1st line -> this row, etc.).
   const cd=e.clipboardData||window.clipboardData; if(!cd) return;
