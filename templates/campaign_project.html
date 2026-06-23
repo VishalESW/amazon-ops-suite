@@ -64,6 +64,11 @@ table.cp-grid td.cp-edit{ padding:0; }
 table.cp-grid td.cp-ro{ color:hsl(var(--muted-foreground)); background:hsl(var(--muted)/.4); }
 table.cp-grid td.cp-fcol, table.cp-grid th.cp-fcol{ text-align:center; color:hsl(var(--primary)); background:hsl(var(--primary)/.06);
   font-style:italic; font-size:.78rem; }
+/* Sticky header cells MUST be opaque, or scrolled body cells show through them
+   (the translucent primary tint above makes formula-column headers see-through,
+   which reads as overlapping text). Keep the formula tint but on a solid base. */
+table.cp-grid thead th{ background-clip:padding-box; }
+table.cp-grid thead th.cp-fcol{ background:hsl(var(--muted)); box-shadow:inset 0 0 0 999px hsl(var(--primary)/.06); }
 /* Excel-style header filter button */
 .cp-th{ display:flex; align-items:center; gap:.4rem; justify-content:space-between; }
 .cp-filtbtn{ border:1px solid hsl(var(--border)); border-radius:3px; background:hsl(var(--background));
@@ -797,6 +802,7 @@ function editableGrid(kind){
       if(type==='edit_ml'){
         return `<td class="cp-edit"><textarea class="cp-cellinput cp-cellta" rows="1" `+
           (phf&&row[phf]?`placeholder="${esc(row[phf])}" `:'')+
+          `onpaste="cpPaste('${kind}',${ri},'${f}',event)" `+
           `oninput="cpEdit('${kind}',${ri},'${f}',this.value);cpAutoGrow(this)" onfocus="cpAutoGrow(this)">${esc(v)}</textarea></td>`;
       }
       if(type==='select_asin'){
@@ -814,7 +820,7 @@ function editableGrid(kind){
       return `<td class="cp-edit${isKw?' cp-kw-cell':''}">`+
         `<input class="cp-cellinput"${wAttr} value="${esc(v)}" `+
         (ph?`placeholder="${esc(ph)}" `:'')+
-        `${onInp}></td>`;
+        `onpaste="cpPaste('${kind}',${ri},'${f}',event)" ${onInp}></td>`;
     }).join('');
     return `<tr data-ri="${ri}">${chkTd}${cells}</tr>`;
   }).join('');
@@ -964,14 +970,46 @@ function cpSort(kind,ci,dir){ const g=GRIDS[kind];
   trs.forEach(tr=>tbody.appendChild(tr));   // reattach in order (keeps inputs + data-ri)
   cpCloseFilter();
 }
+function cpVisibleSelectedRis(kind){
+  // Selected rows that are currently visible (pass every active column filter),
+  // in display order — so copy excludes filtered-out rows and matches paste order.
+  const g=GRIDS[kind]; if(!g) return [];
+  return [...document.querySelectorAll(`#${g.host} table.cp-grid tbody tr`)]
+    .filter(tr=>tr.style.display!=='none' && g.selected && g.selected.has(+tr.dataset.ri))
+    .map(tr=>+tr.dataset.ri);
+}
 function copyKeywords(){
-  if(!GRIDS.sem||!GRIDS.sem.selected||!GRIDS.sem.selected.size){toast('Select keywords first','error');return;}
-  const kws=[...GRIDS.sem.selected].sort((a,b)=>a-b)
-    .map(i=>(GRIDS.sem.rows[i]||{}).keyword||'').filter(Boolean);
-  if(!kws.length){toast('No keywords in selection','error');return;}
+  const g=GRIDS.sem;
+  if(!g||!g.selected||!g.selected.size){toast('Select keywords first','error');return;}
+  const kws=cpVisibleSelectedRis('sem').map(i=>(g.rows[i]||{}).keyword||'').filter(Boolean);
+  if(!kws.length){toast('No visible selected keywords (check your column filters)','error');return;}
   navigator.clipboard.writeText(kws.join('\n')).then(
     ()=>toast(`Copied ${kws.length} keyword(s)`,'success'),
     ()=>toast('Copy failed — try selecting and copying manually','error'));
+}
+function cpPaste(kind,ri,field,e){
+  // Spreadsheet paste-down: a multi-line clipboard fills consecutive visible rows
+  // in this column, starting at the cell pasted into (1st line -> this row, etc.).
+  const cd=e.clipboardData||window.clipboardData; if(!cd) return;
+  let lines=(cd.getData('text')||'').replace(/\r/g,'').split('\n');
+  while(lines.length>1 && lines[lines.length-1]==='') lines.pop();
+  if(lines.length<=1) return;            // single value -> normal paste
+  e.preventDefault();
+  const g=GRIDS[kind]; const off=g.domOffset||0;
+  const ci=g.cols.findIndex(c=>c[0]===field); if(ci<0) return;
+  const trs=[...document.querySelectorAll(`#${g.host} table.cp-grid tbody tr`)]
+    .filter(tr=>tr.style.display!=='none');
+  const start=trs.findIndex(tr=>+tr.dataset.ri===ri); if(start<0) return;
+  let n=0;
+  lines.forEach((val,k)=>{
+    const tr=trs[start+k]; if(!tr) return;
+    const targetRi=+tr.dataset.ri;
+    const cell=tr.children[ci+off];
+    const inp=cell&&cell.querySelector('input:not([type=checkbox]),textarea,select');
+    if(inp){ inp.value=val; if(inp.tagName==='TEXTAREA') cpAutoGrow(inp); }
+    cpEdit(kind,targetRi,field,val); n++;
+  });
+  toast(`Pasted ${n} value(s) down`,'success');
 }
 async function saveGridEdits(kind){ const g=GRIDS[kind];
   clearTimeout(_saveTimers[kind]);   // cancel pending debounce; flush now
