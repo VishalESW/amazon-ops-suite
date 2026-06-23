@@ -134,11 +134,10 @@ def _sem_formulas(r, has_str, sqp_tabs):
     def lk(col):
         return "=" + _lk(f"{str_}!{col}:{col}", f"A{r}", f"{str_}!A:A", "0") \
             if has_str else STR_MISSING_NOTE
-    h10_cvr = _lk(f"'{S_H10}'!C:C", f"A{r}", f"'{S_H10}'!A:A", "0")
-    raw_cvr = _lk(f"{str_}!R:R", f"A{r}", f"{str_}!A:A", h10_cvr) if has_str else h10_cvr
-    # CVR sources (STR CVR, H10 ABA Conv. Share) come as % (e.g. 14.3) or fraction;
-    # normalize to a fraction so the starting-bid math isn't ~100x too high.
-    cvr = f"=IF(({raw_cvr})>1,({raw_cvr})/100,({raw_cvr}))"
+    # Conversion Rate comes from POE only: "Search Conversion Rate (360 days)" (POE!I),
+    # matched on the keyword (POE!C). POE values are fractions; normalize if a % slips in.
+    poe_cvr = _lk(f"'{S_POE}'!I:I", f"A{r}", f"'{S_POE}'!C:C", "0")
+    cvr = f"=IF(({poe_cvr})>1,({poe_cvr})/100,({poe_cvr}))"
     return {
         "C": _sem_search_volume_formula(r, sqp_tabs),
         "D": lk("U"),
@@ -503,6 +502,11 @@ def _build_pat(ws, inp: BuildInput, has_str):
             _setf(ws, "O", r, t["acos"], PCT)
         for col, f in _pat_formulas(r, has_str).items():
             _set(ws, col, r, f)
+        # Conversion Rate (H): PAT targets are competitor ASINs (no per-ASIN CVR in
+        # any upload), so use the POE-derived product CVR passed in. Overrides the
+        # STR-by-ASIN formula, which never matched and left it blank.
+        if t.get("cvr") not in (None, ""):
+            _setf(ws, "H", r, t["cvr"], PCT1)
         _set_fmt(ws, r, {"E": INT, "F": MONEY, "G": PCT1, "H": PCT1, "M": PCT, "Q": MONEY})
         r += 1
 

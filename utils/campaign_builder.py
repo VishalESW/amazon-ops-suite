@@ -300,6 +300,13 @@ def assemble(pid):
         except (TypeError, ValueError):
             return dflt
 
+    # PAT conversion rate: competitor ASINs have no per-ASIN CVR in any upload, so use
+    # the POE-derived product CVR — the average POE "Search Conversion Rate" across the
+    # selected (Y) keywords. Keeps PAT CVR sourced from POE and makes the bid compute.
+    poe_cvrs = [float(v) for v in poe_cvr_by_kw.values()
+                if str(v).strip() not in ("", "None")]
+    pat_cvr = round(sum(poe_cvrs) / len(poe_cvrs), 4) if poe_cvrs else ""
+
     pat_targets, pat_types = [], []
     for asin, tag in asin_tags.items():
         if tag not in PAT_BUCKET:
@@ -317,6 +324,7 @@ def assemble(pid):
             "product": prod,
             "asp": _num(m.get("asp"), default_asp),
             "acos": _num(m.get("acos"), DEFAULT_ACOS),
+            "cvr": pat_cvr,
         })
     _apply_grid_edits(pat_targets, state.get("pat_edits") or {}, PAT_NUMERIC)
     inp.pat_targets = pat_targets
