@@ -821,9 +821,30 @@ function editableGrid(kind){
 
   return `<div class="cp-tablewrap"><table class="cp-grid" data-kind="${kind}"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
+const _saveTimers={};
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
-  const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Save edits *'; }
+  const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Saving…';
+  // Auto-save (debounced) so edits are never lost if the user forgets to click Save
+  // or navigates away. Explicit Save button still flushes immediately.
+  clearTimeout(_saveTimers[kind]);
+  _saveTimers[kind]=setTimeout(()=>autoSaveGrid(kind), 700);
+}
+async function autoSaveGrid(kind){ const g=GRIDS[kind];
+  if(!g || !g.dirty || !g.saveUrl) return;
+  try{
+    const r=await fetch(g.saveUrl,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({edits:g.edits})}).then(r=>r.json());
+    if(r&&r.success){ g.dirty=false;
+      const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Saved ✓'; }
+  }catch(e){ /* stay dirty; retried on next edit / explicit Save / navigation */ }
+}
+async function flushGrids(){
+  for(const k of Object.keys(GRIDS)){ if(GRIDS[k]&&GRIDS[k].dirty) await autoSaveGrid(k); }
+}
+window.addEventListener('beforeunload', function(e){
+  for(const k in GRIDS){ if(GRIDS[k]&&GRIDS[k].dirty){ e.preventDefault(); e.returnValue=''; return ''; } }
+});
 function cpAutoGrow(ta){ ta.style.height='auto'; ta.style.height=(ta.scrollHeight+2)+'px'; }
 function cpSelAll(kind,el){
   const g=GRIDS[kind];
@@ -953,6 +974,7 @@ function copyKeywords(){
     ()=>toast('Copy failed — try selecting and copying manually','error'));
 }
 async function saveGridEdits(kind){ const g=GRIDS[kind];
+  clearTimeout(_saveTimers[kind]);   // cancel pending debounce; flush now
   const btn=document.getElementById(kind+'SaveBtn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
   try{
     const r=await fetch(g.saveUrl,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1037,6 +1059,7 @@ async function doBuild(){
 }
 
 async function advanceTo(to){
+  await flushGrids();   // never navigate away with unsaved grid edits
   try{
     const r=await fetch(`/campaign/projects/${PID}/advance`,{method:'POST',
       headers:{'Content-Type':'application/json'},

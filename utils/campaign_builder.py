@@ -274,6 +274,16 @@ def assemble(pid):
         })
     _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC,
                       skip_empty={"category"})
+    # The editable sheet columns KW Vol. / Match / Broad KW List are stored as
+    # disp_* aliases; map a non-empty manual entry onto the real build fields so
+    # the workbook (Semantics L/M/N + campaign generation) reflects the user's edits.
+    for s in sem_rows:
+        if s.get("disp_kw_type"):
+            s["kw_type"] = s["disp_kw_type"]
+        if s.get("disp_match"):
+            s["match"] = s["disp_match"]
+        if s.get("disp_broad"):
+            s["broad_list"] = s["disp_broad"]
     inp.semantics_rows = sem_rows
 
     # ---- PAT targets + MKL ASIN buckets ------------------------------------
