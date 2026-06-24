@@ -127,7 +127,11 @@ def assemble(pid):
         "orders": pr.get("orders"), "acos": pr.get("acos"), "price": pr.get("price"),
         "asp": pr.get("asp"),
     } for pr in chosen]
-    default_product = inp.products[0]["name"] if inp.products else brand
+    # Campaign/Semantics product label = the SHORT product name (first token of the
+    # ASIN title, e.g. "Lounge-IT" from "Lounge-IT Car Phone Holder, ..."), not the
+    # full title — that's what the client's campaign names use.
+    _full_product = inp.products[0]["name"] if inp.products else brand
+    default_product = (_full_product.split()[0] if _full_product else brand) or brand
     default_asin = inp.products[0]["asin"] if inp.products else ""
     default_asp = next((pr.get("asp") for pr in chosen if pr.get("asp")), DEFAULT_ASP) or DEFAULT_ASP
 
@@ -294,6 +298,9 @@ def assemble(pid):
         if s.get("disp_kw_type"):
             s["kw_type"] = s["disp_kw_type"]
         if s.get("disp_match"):
+            # Normalize the manual match entry (EX/ex/Br/ph...) to the canonical
+            # taxonomy so campaign names read "... | Ex. | ..." not "... | EX | ...".
+            s["disp_match"] = orch.canon_match(s["disp_match"])
             s["match"] = s["disp_match"]
         if s.get("disp_broad"):
             s["broad_list"] = s["disp_broad"]
@@ -325,8 +332,9 @@ def assemble(pid):
     # PAT conversion rate: competitor ASINs have no per-ASIN CVR in any upload, so use
     # the POE-derived product CVR — the average POE "Search Conversion Rate" across the
     # selected (Y) keywords. Keeps PAT CVR sourced from POE and makes the bid compute.
-    poe_cvrs = [float(v) for v in poe_cvr_by_kw.values()
-                if str(v).strip() not in ("", "None")]
+    # Strict parse so a stray non-numeric CVR (e.g. a leaked header label) can never
+    # crash the average; such values are simply skipped.
+    poe_cvrs = [n for n in (orch.clean_num(v) for v in poe_cvr_by_kw.values()) if n]
     pat_cvr = round(sum(poe_cvrs) / len(poe_cvrs), 4) if poe_cvrs else ""
 
     pat_targets, pat_types = [], []
@@ -367,6 +375,11 @@ def assemble(pid):
                                             default_asp, DEFAULT_ACOS, DEFAULT_PLACEMENT)
     inp.campaign_rows += orch._pat_campaign_rows(pat_types, brand, default_product,
                                                  default_asp, DEFAULT_ACOS, DEFAULT_PLACEMENT)
+    # SB/SBV (per Root KW), SPM PT Exp. + SDI PT (per PAT cat), SPA, STPP, SDI
+    # remarketing — the rest of the client's campaign taxonomy (SPM | CT excluded).
+    comp_asins = [t.get("asin") for t in pat_targets if t.get("asin")]
+    inp.campaign_rows += orch._extra_campaign_rows(roots, pat_types, comp_asins,
+                                                   brand, default_product, DEFAULT_PLACEMENT)
 
     meta = {
         "semantics": len(sem_rows),

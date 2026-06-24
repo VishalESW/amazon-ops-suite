@@ -134,10 +134,14 @@ def _sem_formulas(r, has_str, sqp_tabs):
     def lk(col):
         return "=" + _lk(f"{str_}!{col}:{col}", f"A{r}", f"{str_}!A:A", "0") \
             if has_str else STR_MISSING_NOTE
-    # Conversion Rate comes from POE only: "Search Conversion Rate (360 days)" (POE!I),
-    # matched on the keyword (POE!C). POE values are fractions; normalize if a % slips in.
+    # Conversion Rate: POE "Search Conversion Rate (360 days)" (POE!I) matched on the
+    # keyword (POE!C); fall back to H10 "ABA Total Conv. Share" (H10!C matched on
+    # H10!A) when POE is blank/0 — some POE exports don't carry the column, which
+    # otherwise leaves every bid at 0. Values may be % or fraction; normalize if >1.
     poe_cvr = _lk(f"'{S_POE}'!I:I", f"A{r}", f"'{S_POE}'!C:C", "0")
-    cvr = f"=IF(({poe_cvr})>1,({poe_cvr})/100,({poe_cvr}))"
+    h10_cvr = _lk(f"'{S_H10}'!C:C", f"A{r}", f"'{S_H10}'!A:A", "0")
+    raw = f"IF(({poe_cvr})>0,({poe_cvr}),({h10_cvr}))"
+    cvr = f"=IF(({raw})>1,({raw})/100,({raw}))"
     return {
         "C": _sem_search_volume_formula(r, sqp_tabs),
         "D": lk("U"),
@@ -152,7 +156,9 @@ def _sem_formulas(r, has_str, sqp_tabs):
 
 def _camp_formulas(r, brand):
     return {
-        "I": f'=B{r}&" | "&C{r}&" | "&E{r}&" | "&F{r}&" | "&G{r}&" | "&H{r}',
+        # Name joins B|C|D|E|F|G|H, skipping blank cells (TEXTJOIN ignore_empty),
+        # so SPA/STPP (no E/G) and SB/SBV/SDI (Landing Page in D) all read correctly.
+        "I": f'=_xlfn.TEXTJOIN(" | ",TRUE,B{r},C{r},D{r},E{r},F{r},G{r},H{r})',
         "T": f'="{brand} | "&B{r}&" > "&H{r}',
         "W": f'=B{r}&" | "&E{r}&" | "&G{r}&" | "&F{r}',
         "AN": f'=B{r}&"-"&E{r}&"-"&F{r}&"-"&G{r}',
