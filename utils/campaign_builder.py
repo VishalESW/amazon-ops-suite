@@ -239,21 +239,21 @@ def assemble(pid):
     # is non-deterministic); recomputed only when the keyword set or custom roots change.
     cached = state.get("roots") or {}
     custom_roots = cached.get("custom") or []
-    n = len(kw_texts)
-    if cached.get("map") is not None and cached.get("n") == n and cached.get("custom", []) == custom_roots:
+    # Signature over the EXACT keyword set (not just its count) so changing WHICH
+    # keywords are selected — even when the count is unchanged — invalidates a stale
+    # map. A stale map misses on lookup and would dump every unmatched keyword into a
+    # single fallback root: the "phantom root in the badge but not in the column" bug.
+    import hashlib
+    sig = hashlib.md5("\n".join(sorted(k.lower() for k in kw_texts)).encode("utf-8")).hexdigest()
+    if cached.get("map") and cached.get("sig") == sig and cached.get("custom", []) == custom_roots:
         root_map = cached["map"]
-        root_summary = cached.get("summary") or []
-        roots = cached.get("items") or [r for r, _ in root_summary]
     else:
-        res = ai.assign_roots_ruled(kw_texts, custom_roots) if kw_texts else {"map": {}, "summary": []}
+        res = ai.assign_roots_ruled(kw_texts, custom_roots) if kw_texts else {"map": {}}
         root_map = res["map"]
-        root_summary = res["summary"]
-        roots = [r for r, _ in root_summary]
-        cdb.save_state(pid, "roots", {"map": root_map, "items": roots,
-                                      "summary": root_summary, "custom": custom_roots, "n": n})
+        cdb.save_state(pid, "roots", {"map": root_map, "custom": custom_roots,
+                                      "sig": sig, "n": len(kw_texts)})
     # Lower-cased lookup so the keyword text matches regardless of original casing.
     rm_lower = {str(k).lower(): v for k, v in (root_map or {}).items()}
-    inp.root_categories = roots or ["0-Gen"]
 
     # ---- Semantics rows ----------------------------------------------------
     sem_rows = []
@@ -261,10 +261,12 @@ def assemble(pid):
         kw = c["keyword"]
         sv = sv_by_kw.get(kw.lower(), 0)
         kw_type, match = _digit_rule(sv)
-        root = rm_lower.get(kw.lower(), "")
+        # Every keyword gets a real root: the map entry, else a per-keyword rule
+        # fallback (never silently dumped into the top root).
+        root = rm_lower.get(kw.lower()) or ai.root_for(kw, custom_roots) or "0-Gen"
         sem_rows.append({
             "keyword": kw, "source": c["source"],
-            "category": root or (roots[0] if roots else "0-Gen"),
+            "category": root,
             "kw_type": kw_type, "match": match, "product": default_product,
             "product_asin": default_asin,
             "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
@@ -296,6 +298,15 @@ def assemble(pid):
         if s.get("disp_broad"):
             s["broad_list"] = s["disp_broad"]
     inp.semantics_rows = sem_rows
+
+    # Root summary is derived from the FINAL Root KW column (after the per-keyword
+    # fallback AND any manual edits) so the "Roots used" badges always equal what is
+    # actually in the grid — never a phantom count from a pre-edit map.
+    from collections import Counter
+    _rc = Counter(s["category"] for s in sem_rows if s.get("category"))
+    root_summary = [[r, n] for r, n in _rc.most_common()]
+    roots = [r for r, _ in root_summary]
+    inp.root_categories = roots or ["0-Gen"]
 
     # ---- PAT targets + MKL ASIN buckets ------------------------------------
     # Per-ASIN PAT-sheet inputs from the ASIN-selection grid (title/source/

@@ -258,6 +258,12 @@ def _summary(mapping):
     return [[r, n] for r, n in Counter(mapping.values()).most_common()]
 
 
+def root_for(keyword, custom_roots=None):
+    """Best single root for ONE keyword via the deterministic rule — used as a
+    per-keyword fallback when an AI map has no entry for that keyword."""
+    return _roots_heuristic([str(keyword)], custom_roots).get(str(keyword), "")
+
+
 def assign_roots_ruled(keywords, custom_roots=None, max_roots=15):
     """Assign ONE lowercase root word to each keyword following the PPC root rule:
     brand/device name > feature/type > foreign-language group > generic noun.
