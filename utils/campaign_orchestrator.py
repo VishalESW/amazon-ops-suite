@@ -611,23 +611,39 @@ def generate(form, files, out_path, categories=None):
 
 
 def _campaign_rows(sem_rows, brand, product, asp, acos, placement):
-    """One campaign row per keyword that has a manually-set KW Vol. in Semantics.
+    """Keyword campaigns from the rows with a manually-set KW Vol. in Semantics.
 
-    Only rows where the user filled in disp_kw_type (KW Vol. column) are included —
-    the auto SV-digit rule is no longer applied here.
+    - SKW: one campaign per keyword (G = keyword), goal Rank.
+    - MKW: grouped by Root KW — one campaign per (root, match) present among the
+      MKW-tagged keywords (G = root). Exact ranks (Rank); broader matches are
+      performance (Perf). This matches the client's per-root MKW structure.
+    Only rows where the user filled in disp_kw_type (KW Vol.) are included.
     """
     rows = []
+    seen_mkw = set()  # (root, match) — dedupe MKW campaigns to one per group
     for s in sem_rows:
         ktype = (s.get("disp_kw_type") or "").strip()
-        match = (s.get("disp_match") or "").strip()
         if not ktype:
             continue  # skip: no manual KW Vol. entry
+        match = (s.get("disp_match") or "").strip()
+        prod = s.get("product") or product
+        if ktype.upper() == "MKW":
+            root = (s.get("category") or "").strip()
+            if not root:
+                continue
+            key = (root, match)
+            if key in seen_mkw:
+                continue
+            seen_mkw.add(key)
+            g, goal = root, ("Rank" if match == "Ex." else "Perf")
+        else:  # SKW (or any other single-keyword type)
+            g, goal = s["keyword"], "Rank"
         rows.append({
-            "A": "Create", "B": s.get("product") or product, "C": "SPM",
-            "E": ktype, "F": match, "G": s["keyword"], "H": "Rank",
+            "A": "Create", "B": prod, "C": "SPM",
+            "E": ktype, "F": match, "G": g, "H": goal,
             "J": brand, "K": 5, "L": "Any Date Range", "M": "Manual Targeting",
             "P": "Fixed Bids", "Q": placement, "S": placement,
-            "U": s.get("product") or product, "V": "Keyword Targeting",
+            "U": prod, "V": "Keyword Targeting",
             "Z": 0.2, "AA": "", "AB": "Refer Semantics",
             "AC": "None", "AD": "None", "AE": "None",
             "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14,
