@@ -232,17 +232,28 @@ def assemble(pid):
 
     # ---- Root keywords + categories ----------------------------------------
     kw_texts = [c["keyword"] for c in y_kws]
-    ctx = f"{brand}: {default_product}"
-    # Persist roots on first assembly so the preview and the build agree (the AI is
-    # non-deterministic). Cleared automatically when keyword selections change count.
+    # Root assignment follows the PPC root rule (campaign_ai.assign_roots_ruled):
+    # one lowercase root per keyword — brand/device > feature/type > foreign-language
+    # group > generic noun, capped at 15 categories. The user's custom roots (set in
+    # the Semantics step) are reused first. Persisted so preview and build agree (AI
+    # is non-deterministic); recomputed only when the keyword set or custom roots change.
     cached = state.get("roots") or {}
-    if cached.get("n") == len(kw_texts) and cached.get("items"):
-        roots = cached["items"]
+    custom_roots = cached.get("custom") or []
+    n = len(kw_texts)
+    if cached.get("map") is not None and cached.get("n") == n and cached.get("custom", []) == custom_roots:
+        root_map = cached["map"]
+        root_summary = cached.get("summary") or []
+        roots = cached.get("items") or [r for r, _ in root_summary]
     else:
-        roots = ai.generate_roots(kw_texts, ctx) if kw_texts else []
-        cdb.save_state(pid, "roots", {"items": roots, "n": len(kw_texts)})
+        res = ai.assign_roots_ruled(kw_texts, custom_roots) if kw_texts else {"map": {}, "summary": []}
+        root_map = res["map"]
+        root_summary = res["summary"]
+        roots = [r for r, _ in root_summary]
+        cdb.save_state(pid, "roots", {"map": root_map, "items": roots,
+                                      "summary": root_summary, "custom": custom_roots, "n": n})
+    # Lower-cased lookup so the keyword text matches regardless of original casing.
+    rm_lower = {str(k).lower(): v for k, v in (root_map or {}).items()}
     inp.root_categories = roots or ["0-Gen"]
-    usage = {}
 
     # ---- Semantics rows ----------------------------------------------------
     sem_rows = []
@@ -250,7 +261,7 @@ def assemble(pid):
         kw = c["keyword"]
         sv = sv_by_kw.get(kw.lower(), 0)
         kw_type, match = _digit_rule(sv)
-        root = ai.assign_root(kw, roots, usage) if roots else ""
+        root = rm_lower.get(kw.lower(), "")
         sem_rows.append({
             "keyword": kw, "source": c["source"],
             "category": root or (roots[0] if roots else "0-Gen"),
@@ -351,6 +362,8 @@ def assemble(pid):
         "campaigns": len(inp.campaign_rows),
         "pat_targets": len(pat_targets),
         "roots": roots,
+        "root_summary": root_summary,
+        "custom_roots": custom_roots,
         "competitors": len(inp.competitor_kws),
         "own_brand_kws": len(inp.own_branded_kws),
         "str_included": bool(inp.str_table),

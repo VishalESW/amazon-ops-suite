@@ -205,6 +205,122 @@ def generate_roots(keywords, product_context, max_roots=12):
            [cnt.most_common(1)[0][0]] if cnt else []
 
 
+# Deterministic-fallback lexicons for the PPC root rule. The AI is the primary
+# path; these keep root assignment working when the endpoint is unreachable.
+_BRAND_DEVICE = {
+    "magsafe", "iphone", "samsung", "tesla", "jeep", "android", "motorola",
+    "pixel", "apple", "google", "galaxy", "oneplus", "huawei", "xiaomi", "nokia",
+    "sony", "lg", "honda", "toyota", "ford", "bmw", "audi", "kia", "nissan",
+    "chevy", "chevrolet", "ipad", "airpods", "garmin",
+}
+_FEATURE = {
+    "magnetic", "mirror", "vent", "wireless", "dashboard", "dash", "suction",
+    "windshield", "cup", "ring", "stand", "clip", "cradle", "grip", "adhesive",
+    "telescopic", "retractable", "foldable", "rearview", "armrest", "console",
+}
+
+
+def _cap_roots(mapping, max_roots):
+    """Fold the least-used roots into the single most-used one so the result never
+    exceeds `max_roots` categories (rule: <=15 root categories total)."""
+    from collections import Counter
+    cnt = Counter(mapping.values())
+    if len(cnt) <= max_roots:
+        return mapping
+    keep = {r for r, _ in cnt.most_common(max_roots - 1)}
+    fallback = cnt.most_common(1)[0][0]
+    return {k: (v if v in keep else fallback) for k, v in mapping.items()}
+
+
+def _roots_heuristic(keywords, custom):
+    """Deterministic root per keyword: custom roots first, then brand/device,
+    then feature/type, else the most-frequent meaningful noun in the phrase."""
+    custom = [c for c in (custom or []) if c]
+    out = {}
+    for kw in keywords:
+        toks = [w for w in re.split(r"[^a-z0-9]+", kw.lower()) if w]
+        root = ""
+        for src in (custom, _BRAND_DEVICE, _FEATURE):
+            hit = next((w for w in toks if w in src), "")
+            if hit:
+                root = hit
+                break
+        if not root:
+            # generic: longest non-stopword token (most descriptive noun)
+            cands = [w for w in toks if len(w) > 2 and not w.isdigit() and w not in _STOP]
+            root = max(cands, key=len) if cands else (toks[0] if toks else "gen")
+        out[kw] = root
+    return out
+
+
+def _summary(mapping):
+    from collections import Counter
+    return [[r, n] for r, n in Counter(mapping.values()).most_common()]
+
+
+def assign_roots_ruled(keywords, custom_roots=None, max_roots=15):
+    """Assign ONE lowercase root word to each keyword following the PPC root rule:
+    brand/device name > feature/type > foreign-language group > generic noun.
+    `custom_roots` are user-defined roots the assigner reuses first whenever a
+    keyword fits one. Caps at `max_roots` categories. Returns
+    {"map": {keyword: root}, "summary": [[root, count], ...]} (count desc).
+    AI-first with a deterministic lexicon fallback so build never breaks."""
+    kws = [k for k in dict.fromkeys(str(k).strip() for k in keywords) if k]
+    custom = [str(c).strip().lower() for c in (custom_roots or []) if str(c).strip()]
+    if not kws:
+        return {"map": {}, "summary": []}
+
+    if available():
+        custom_line = (
+            f"REUSE these existing root categories first whenever a keyword fits one: "
+            f"{json.dumps(custom)}.\n" if custom else ""
+        )
+        prompt = (
+            "You are a PPC keyword organization specialist. Assign a single ROOT "
+            "keyword to each keyword below.\n"
+            "Priority for picking the root:\n"
+            "1. Brand/Device name (magsafe, iphone, samsung, tesla, jeep, android, "
+            "motorola, pixel, ...) -> that word is the root.\n"
+            "2. Feature/Type (magnetic, mirror, vent, wireless, dashboard, suction, "
+            "...) -> that word is the root.\n"
+            "3. Foreign language -> group ALL foreign-language keywords under ONE "
+            "root word from that language (e.g. 'carro' for Spanish).\n"
+            "4. Generic -> the most descriptive noun (mount, holder, phone, car, ...).\n"
+            "Rules: one lowercase word only; the root must appear in the keyword or be "
+            "a clear parent category of it; every keyword gets a root; be consistent "
+            f"(same word -> same root); use NO MORE than {max_roots} distinct roots total.\n"
+            f"{custom_line}"
+            f"Keywords: {json.dumps(kws[:400])}\n\n"
+            'Reply ONLY a JSON array of objects: [{"kw":"...","root":"..."}]'
+        )
+        try:
+            data = _json_array(chat([
+                {"role": "system", "content": "You output only a valid JSON array."},
+                {"role": "user", "content": prompt},
+            ], max_tokens=4000))
+            mapping = {}
+            valid = {_norm(k): k for k in kws}
+            for d in data:
+                if not isinstance(d, dict):
+                    continue
+                kw, root = valid.get(_norm(d.get("kw"))), str(d.get("root") or "").strip().lower()
+                root = re.sub(r"[^a-z0-9]", "", root.split()[0]) if root else ""
+                if kw and root:
+                    mapping[kw] = root
+            # Fill any keyword the model skipped, then enforce the category cap.
+            missing = [k for k in kws if k not in mapping]
+            if missing:
+                mapping.update(_roots_heuristic(missing, custom))
+            if mapping:
+                mapping = _cap_roots(mapping, max_roots)
+                return {"map": mapping, "summary": _summary(mapping)}
+        except CampaignAIError:
+            pass
+
+    mapping = _cap_roots(_roots_heuristic(kws, custom), max_roots)
+    return {"map": mapping, "summary": _summary(mapping)}
+
+
 def assign_root(keyword, roots, usage):
     """Pick the most relevant root contained in `keyword`, preferring a root not yet
     used (greedy-unique). `usage` is a dict root->count, mutated. Returns root or ''."""
