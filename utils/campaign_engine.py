@@ -134,13 +134,21 @@ def _sem_formulas(r, has_str, sqp_tabs):
     def lk(col):
         return "=" + _lk(f"{str_}!{col}:{col}", f"A{r}", f"{str_}!A:A", "0") \
             if has_str else STR_MISSING_NOTE
-    # Conversion Rate: POE "Search Conversion Rate (360 days)" (POE!I) matched on the
-    # keyword (POE!C); fall back to H10 "ABA Total Conv. Share" (H10!C matched on
-    # H10!A) when POE is blank/0 — some POE exports don't carry the column, which
-    # otherwise leaves every bid at 0. Values may be % or fraction; normalize if >1.
+    # Conversion Rate priority: POE "Search Conversion Rate (360 days)" (POE!I by
+    # POE!C) -> Search Term Report "CVR" (STR!R by STR!A) -> H10 "ABA Total Conv.
+    # Share" (H10!C by H10!A). First source with a value > 0 wins; many exports leave
+    # POE/STR CVR blank, which otherwise leaves every bid at 0. Values may be % or
+    # fraction; normalize if > 1.
     poe_cvr = _lk(f"'{S_POE}'!I:I", f"A{r}", f"'{S_POE}'!C:C", "0")
     h10_cvr = _lk(f"'{S_H10}'!C:C", f"A{r}", f"'{S_H10}'!A:A", "0")
-    raw = f"IF(({poe_cvr})>0,({poe_cvr}),({h10_cvr}))"
+    sources = [poe_cvr]
+    if has_str:
+        sources.append(_lk(f"{str_}!R:R", f"A{r}", f"{str_}!A:A", "0"))
+    sources.append(h10_cvr)
+    # Nest into IF(src1>0, src1, IF(src2>0, src2, src3)) — first positive wins.
+    raw = f"({sources[-1]})"
+    for s in reversed(sources[:-1]):
+        raw = f"IF(({s})>0,({s}),{raw})"
     cvr = f"=IF(({raw})>1,({raw})/100,({raw}))"
     return {
         "C": _sem_search_volume_formula(r, sqp_tabs),
