@@ -645,7 +645,7 @@ def _pat_campaign_rows(pat_types, brand, product, asp, acos, placement):
     for cat_type in pat_types:
         rows.append({
             "A": "Create", "B": product, "C": "SPM",
-            "E": "PT", "F": "Ex.", "G": cat_type, "H": "Rank",
+            "E": "PT", "F": "Ex.", "G": cat_type, "H": "Perf",
             "J": brand, "K": 5, "L": "Any Date Range", "M": "Manual Targeting",
             "P": "Fixed Bids", "Q": placement, "S": placement,
             "U": product, "V": "Product Targeting",
@@ -653,6 +653,60 @@ def _pat_campaign_rows(pat_types, brand, product, asp, acos, placement):
             "AC": "None", "AD": "None", "AE": "None",
             "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14,
         })
+    return rows
+
+
+# Canonical match tokens. User entries (KW Vol./Match) come in inconsistently
+# (EX, ex, Ex., Br, br.m, ph ...) and flow straight into campaign names, so map
+# them onto the client's taxonomy: Ex. / Br. / Br.M / Ph. / Exp.
+_MATCH_CANON = {"ex": "Ex.", "br": "Br.", "brm": "Br.M", "ph": "Ph.", "exp": "Exp."}
+
+
+def canon_match(m):
+    key = re.sub(r"[.\s]", "", str(m or "").lower())
+    return _MATCH_CANON.get(key, str(m or "").strip())
+
+
+# Fixed Sponsored-Products auto-targeting (SPA) groups and Sponsored-Display
+# remarketing (SDI) lookback windows — reverse-engineered from the client's
+# master workbook. (match-token, target / window label).
+_SPA_GROUPS = [("Cls.", "Close Match"), ("Los.", "Loose Match"),
+               ("Sub.", "Substitutes"), ("Com.", "Complements")]
+_SDI_REMARKETING = [("VREM", "7 - 60 LP"), ("PREM", "30 - 90 LP")]
+
+
+def _extra_campaign_rows(roots, pat_types, comp_asins, brand, product, placement):
+    """The non-SPM-keyword campaign rows the client's taxonomy needs (excluding
+    SPM | CT): SB & SBV per Root KW (Ex.), SPM PT Exp. + SDI PT per PAT category,
+    4 fixed SPA auto groups, STPP Ex./Exp. brand-defence (all PAT competitor ASINs),
+    and SDI VREM/PREM remarketing. Bids/targets left blank where filled manually;
+    the I-column TEXTJOIN builds each name from B|C|D|E|F|G|H."""
+    rows = []
+
+    def base(**kw):
+        d = {"A": "Create", "B": product, "J": brand, "K": 5,
+             "L": "Any Date Range", "M": "Manual Targeting", "AL": ""}
+        d.update(kw)
+        return d
+
+    # SB (PC-Store) + SBV (PP): one per unique Root KW, Exact match.
+    for root in roots:
+        rows.append(base(C="SB",  D="PC-Store", E="MKW", F="Ex.", G=root, H="Perf"))
+        rows.append(base(C="SBV", D="PP",       E="MKW", F="Ex.", G=root, H="Rank"))
+    # SPM PT Expanded + SDI PT Exact: one per PAT category.
+    for cat in pat_types:
+        rows.append(base(C="SPM", E="PT", F="Exp.", G=cat, H="Perf", AB="Refer Semantics"))
+        rows.append(base(C="SDI", D="PP", E="PT", F="Ex.", G=cat, H="Perf"))
+    # SPA auto-targeting: 4 fixed groups.
+    for f, tgt in _SPA_GROUPS:
+        rows.append(base(C="SPA", F=f, H="Rsrch", AB=tgt))
+    # STPP brand defence: Ex.+Exp., targeting all PAT competitor ASINs.
+    stpp_tgt = ", ".join(a for a in comp_asins if a)
+    rows.append(base(C="SPM", E="STPP", F="Ex.",  H="Perf",  AB=stpp_tgt))
+    rows.append(base(C="SPM", E="STPP", F="Exp.", H="Rsrch", AB=stpp_tgt))
+    # SDI remarketing: 2 fixed lookback windows.
+    for e, win in _SDI_REMARKETING:
+        rows.append(base(C="SDI", D="PP", E=e, F="Adv. Prd.", G=win, H="Perf"))
     return rows
 
 
