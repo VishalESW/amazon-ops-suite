@@ -325,8 +325,9 @@ def assemble(pid):
     # PAT conversion rate: competitor ASINs have no per-ASIN CVR in any upload, so use
     # the POE-derived product CVR — the average POE "Search Conversion Rate" across the
     # selected (Y) keywords. Keeps PAT CVR sourced from POE and makes the bid compute.
-    poe_cvrs = [float(v) for v in poe_cvr_by_kw.values()
-                if str(v).strip() not in ("", "None")]
+    # Strict parse so a stray non-numeric CVR (e.g. a leaked header label) can never
+    # crash the average; such values are simply skipped.
+    poe_cvrs = [n for n in (orch.clean_num(v) for v in poe_cvr_by_kw.values()) if n]
     pat_cvr = round(sum(poe_cvrs) / len(poe_cvrs), 4) if poe_cvrs else ""
 
     pat_targets, pat_types = [], []

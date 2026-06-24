@@ -273,6 +273,18 @@ def _num(v):
         return 0.0
 
 
+_NUM_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+
+
+def clean_num(v):
+    """Strict numeric parse: returns a float ONLY when the whole value is a clean
+    number (after stripping %, commas, whitespace), else None. Unlike _num it does
+    NOT salvage digits out of text — so a stray header label like
+    'Click Share (360 days)' yields None instead of a misleading 360."""
+    s = str(v).replace(",", "").replace("%", "").strip()
+    return float(s) if _NUM_RE.match(s) else None
+
+
 # --------------------------------------------------------------------------- #
 # Candidate pooling for Semantics
 # --------------------------------------------------------------------------- #
@@ -342,7 +354,11 @@ def extract_cvr_by_kw(df, source):
     for _, row in df.iterrows():
         k = str(row.get(kw_col, "")).strip().lower()
         v = str(row.get(cvr_col, "")).strip()
-        if k and v and v not in ("", "nan", "none", "0", "0.0"):
+        # Only keep a CVR that is a real (non-zero) number. Drops blanks AND any
+        # non-numeric junk — e.g. a header label that leaked into a data row
+        # ('Click Share (360 days)') — so it never poisons the CVR average.
+        n = clean_num(v)
+        if k and n:
             out.setdefault(k, v)
     return out
 
