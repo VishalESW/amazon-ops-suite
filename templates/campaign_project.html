@@ -843,6 +843,8 @@ function editableGrid(kind){
 const _saveTimers={};
 function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   (g.edits[ri]=g.edits[ri]||{})[field]=val; g.dirty=true;
+  // Root KW edits recount the "Roots used" badges live so they always match the grid.
+  if(kind==='sem' && field==='category') renderRootSummary();
   const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Saving…';
   // Auto-save (debounced) so edits are never lost if the user forgets to click Save
   // or navigates away. Explicit Save button still flushes immediately.
@@ -916,6 +918,7 @@ function cpApplyBulk(kind,field,val){
     }
   });
   g.dirty=true;
+  if(kind==='sem' && field==='category') renderRootSummary();   // live badge recount
   const b=document.getElementById(kind+'SaveBtn');if(b)b.textContent='Save edits *';
   toast(`Applied to ${g.selected.size} row(s)`,'success');
 }
@@ -1040,9 +1043,6 @@ async function saveGridEdits(kind){ const g=GRIDS[kind];
 }
 
 function renderSemantics(){
-  const roots=ASM.meta.roots||[];
-  document.getElementById('asmRoots').innerHTML='<span class="text-xs text-muted-foreground mr-2">Root keywords:</span>'+
-    (roots.length?roots.map(r=>`<span class="cp-badge mr-1">${esc(r)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>');
   GRIDS.sem={
     host:'asmHost',
     cols:[
@@ -1074,12 +1074,31 @@ function renderSemantics(){
     `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint placeholder text in <strong>KW Vol.</strong> / <strong>Match Type</strong> = SV-rule hint (reference only — only your manual entries drive campaigns) · check rows then use column header inputs to bulk-edit</p>`+
     editableGrid('sem');
 }
+function liveRootCounts(){
+  // Count each row's CURRENT Root KW: the edited value if non-empty, else the
+  // assigned value (mirrors the build's skip_empty={"category"} rule). Returns
+  // [[root,count],...] desc, or null when the Semantics grid isn't loaded.
+  const g=GRIDS.sem; if(!g||!g.rows) return null;
+  const c={};
+  g.rows.forEach((row,ri)=>{
+    const e=g.edits[ri]||{};
+    let v=(e.category!=null && String(e.category).trim()!=='') ? e.category : (row.category||'');
+    v=String(v).trim(); if(!v) return;
+    c[v]=(c[v]||0)+1;
+  });
+  return Object.entries(c).sort((a,b)=>b[1]-a[1]);
+}
 function renderRootSummary(){
   const meta=ASM.meta||{};
   const ci=document.getElementById('customRoots');
   if(ci && document.activeElement!==ci) ci.value=(meta.custom_roots||[]).join(', ');
+  const sum=liveRootCounts() || (meta.root_summary||[]);
+  // Top distinct-root list stays in sync with the live counts.
+  const roots=sum.map(s=>s[0]);
+  const top=document.getElementById('asmRoots');
+  if(top) top.innerHTML='<span class="text-xs text-muted-foreground mr-2">Root keywords:</span>'+
+    (roots.length?roots.map(r=>`<span class="cp-badge mr-1">${esc(r)}</span>`).join(''):'<span class="text-xs text-muted-foreground">none</span>');
   const host=document.getElementById('rootSummary'); if(!host) return;
-  const sum=meta.root_summary||[];
   host.innerHTML = sum.length
     ? '<span class="text-xs text-muted-foreground mr-2">Roots used:</span>'+
       sum.map(s=>`<span class="cp-badge mr-1">${esc(s[0])} · ${s[1]}</span>`).join('')
