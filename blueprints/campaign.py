@@ -932,6 +932,31 @@ def save_semantics_edits(pid):
     return jsonify({"success": True, "count": len(cur)})
 
 
+@bp.route("/projects/<pid>/roots", methods=["POST"])
+def regen_roots(pid):
+    """Recompute Semantics Root KW assignments via the PPC root rule, honoring the
+    user's custom root list. Saves only the custom roots + clears the cached map so
+    the next assemble recomputes; does NOT touch saved Semantics edits, so a manually
+    edited Root KW cell still wins at build time."""
+    if not cdb.get_project(pid):
+        abort(404)
+    body = request.get_json(silent=True) or {}
+    custom = [str(x).strip().lower() for x in (body.get("custom_roots") or []) if str(x).strip()]
+    custom = list(dict.fromkeys(custom))[:15]
+    # Replace the roots blob with just the custom list -> dropping the cached map
+    # forces assemble() to reassign every keyword honoring the new custom roots.
+    cdb.save_state(pid, "roots", {"custom": custom})
+    from utils import campaign_builder as cb
+    try:
+        _inp, meta = cb.assemble(pid)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "roots": meta.get("roots", []),
+                    "summary": meta.get("root_summary", []),
+                    "custom_roots": meta.get("custom_roots", [])})
+
+
 @bp.route("/projects/<pid>/pat-edits", methods=["POST"])
 def save_pat_edits(pid):
     """Merge per-row PAT edits {rowIndex: {field: value}} into the saved blob."""

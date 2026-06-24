@@ -340,6 +340,19 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         </div>
       </div>
       <div id="asmRoots" class="mb-3"></div>
+      <div id="rootRule" class="cp-card p-3 mb-3" style="background:hsl(var(--muted)/.4)">
+        <div class="flex flex-wrap items-end gap-2">
+          <div class="flex-1 min-w-[16rem]">
+            <label class="block text-xs font-medium mb-1">Custom root keywords (optional, comma-separated) — the AI reuses these first</label>
+            <input id="customRoots" type="text" placeholder="e.g. magsafe, magnetic, vent, carro"
+              class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          </div>
+          <button onclick="regenRoots()" id="regenRootsBtn"
+            class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition">Assign roots (AI rule)</button>
+        </div>
+        <p class="text-xs text-muted-foreground mt-2">Rule: brand/device &gt; feature/type &gt; foreign-language group &gt; generic noun · one lowercase word per keyword · max 15 categories. Edited <strong>Root KW</strong> cells are kept and always win.</p>
+        <div id="rootSummary" class="mt-2"></div>
+      </div>
       <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
     </section>
 
@@ -1056,9 +1069,35 @@ function renderSemantics(){
     saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
     asinChoices:(ASM.products||[]),
   };
+  renderRootSummary();
   document.getElementById('asmHost').innerHTML=
     `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint placeholder text in <strong>KW Vol.</strong> / <strong>Match Type</strong> = SV-rule hint (reference only — only your manual entries drive campaigns) · check rows then use column header inputs to bulk-edit</p>`+
     editableGrid('sem');
+}
+function renderRootSummary(){
+  const meta=ASM.meta||{};
+  const ci=document.getElementById('customRoots');
+  if(ci && document.activeElement!==ci) ci.value=(meta.custom_roots||[]).join(', ');
+  const host=document.getElementById('rootSummary'); if(!host) return;
+  const sum=meta.root_summary||[];
+  host.innerHTML = sum.length
+    ? '<span class="text-xs text-muted-foreground mr-2">Roots used:</span>'+
+      sum.map(s=>`<span class="cp-badge mr-1">${esc(s[0])} · ${s[1]}</span>`).join('')
+    : '';
+}
+async function regenRoots(){
+  const btn=document.getElementById('regenRootsBtn');
+  const custom=((document.getElementById('customRoots')||{}).value||'')
+    .split(',').map(s=>s.trim()).filter(Boolean);
+  if(btn){btn.disabled=true;btn.textContent='Assigning…';}
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/roots`,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({custom_roots:custom})}).then(r=>r.json());
+    if(r.success){ toast('Roots reassigned by rule','success'); await loadAssemble(); }
+    else toast(r.error||'Assign failed','error');
+  }catch(e){ toast('Network error','error'); }
+  finally{ if(btn){btn.disabled=false;btn.textContent='Assign roots (AI rule)';} }
 }
 function renderMaster(){
   const m=ASM.master;
