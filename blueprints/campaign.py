@@ -896,27 +896,50 @@ def assemble_preview(pid):
     return jsonify({"success": True, "meta": meta, "semantics": semantics,
                     "products": products,
                     "sem_columns": cb.SEM_EDITABLE, "pat_columns": cb.PAT_EDITABLE,
+                    # Raw saved edit maps so the grid reseeds its full edit set and a
+                    # later save re-sends everything (defensive against any overwrite).
+                    "sem_edits": cdb.get_state(pid, "semantics_edits") or {},
+                    "pat_edits": cdb.get_state(pid, "pat_edits") or {},
                     "campaigns": campaigns, "master": master, "pat": pat})
+
+
+def _merge_edits(pid, key, incoming):
+    """MERGE per-row/per-field edits into the stored blob — never overwrite/wipe.
+    A save that carries only this session's deltas (or none) must not erase edits
+    saved earlier for other rows. Fields are updated in place; existing rows kept."""
+    cur = cdb.get_state(pid, key) or {}
+    if not isinstance(cur, dict):
+        cur = {}
+    for ri, fields in (incoming or {}).items():
+        if not isinstance(fields, dict):
+            continue
+        row = cur.get(ri)
+        if not isinstance(row, dict):
+            row = {}
+        row.update(fields)          # incoming field values win; others preserved
+        cur[ri] = row
+    cdb.save_state(pid, key, cur)
+    return cur
 
 
 @bp.route("/projects/<pid>/semantics-edits", methods=["POST"])
 def save_semantics_edits(pid):
-    """Persist per-row Semantics edits {rowIndex: {field: value}} for the build."""
+    """Merge per-row Semantics edits {rowIndex: {field: value}} into the saved blob."""
     if not cdb.get_project(pid):
         abort(404)
     edits = (request.get_json(silent=True) or {}).get("edits") or {}
-    cdb.save_state(pid, "semantics_edits", edits)
-    return jsonify({"success": True, "count": len(edits)})
+    cur = _merge_edits(pid, "semantics_edits", edits)
+    return jsonify({"success": True, "count": len(cur)})
 
 
 @bp.route("/projects/<pid>/pat-edits", methods=["POST"])
 def save_pat_edits(pid):
-    """Persist per-row PAT edits {rowIndex: {field: value}} for the build."""
+    """Merge per-row PAT edits {rowIndex: {field: value}} into the saved blob."""
     if not cdb.get_project(pid):
         abort(404)
     edits = (request.get_json(silent=True) or {}).get("edits") or {}
-    cdb.save_state(pid, "pat_edits", edits)
-    return jsonify({"success": True, "count": len(edits)})
+    cur = _merge_edits(pid, "pat_edits", edits)
+    return jsonify({"success": True, "count": len(cur)})
 
 
 @bp.route("/projects/<pid>/build", methods=["POST"])

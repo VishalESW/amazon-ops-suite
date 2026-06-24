@@ -1052,7 +1052,7 @@ function renderSemantics(){
       ['acos_target','ACoS Target','edit'],
       [null,'Starting Bid','f'],
     ],
-    rows:ASM.semantics||[], edits:{},
+    rows:ASM.semantics||[], edits:Object.assign({}, ASM.sem_edits||{}),
     saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
     asinChoices:(ASM.products||[]),
   };
