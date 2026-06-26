@@ -65,7 +65,7 @@ LAYOUTS = {
     S_BRAND: Layout(6, 7, "U"),
     S_MKL:  Layout(2, 3, "BO"),
     S_PAT:  Layout(2, 3, "T"),
-    S_SEM:  Layout(3, 4, "T"),
+    S_SEM:  Layout(3, 4, "U"),
     S_CAMP: Layout(1, 2, "AN", clear_to=901),
     TEMPLATE_SQP: Layout(11, 12, "AI"),
     S_ROOT: Layout(1, 2, "A"),
@@ -150,15 +150,17 @@ def _sem_formulas(r, has_str, sqp_tabs):
     for s in reversed(sources[:-1]):
         raw = f"IF(({s})>0,({s}),{raw})"
     cvr = f"=IF(({raw})>1,({raw})/100,({raw}))"
+    # Layout: K Root KW, L (blank spacer), M KW Vol., N Match, O Broad, P Product,
+    # Q Campaign Name, R Placement Mod, S ASP, T ACoS Target, U Starting Bid.
     return {
         "C": _sem_search_volume_formula(r, sqp_tabs),
         "D": lk("U"),
         "E": lk("S"),
         "F": lk("Q"),
         "G": cvr,
-        "P": "=" + _lk(f"'{S_CAMP}'!$I:$I", f'O{r}&"-"&$L{r}&"-"&$M{r}&"-"&$A{r}',
+        "Q": "=" + _lk(f"'{S_CAMP}'!$I:$I", f'P{r}&"-"&$M{r}&"-"&$N{r}&"-"&$A{r}',
                        f"'{S_CAMP}'!$AN:$AN", '"n/a"'),
-        "T": f"=ROUND((G{r}*R{r}*S{r})/(1+Q{r}),2)",
+        "U": f"=ROUND((G{r}*S{r}*T{r})/(1+R{r}),2)",
     }
 
 
@@ -458,11 +460,11 @@ def _build_semantics(ws, inp: BuildInput, has_str, sqp_tabs):
         # edits in the app (disp_* fields). The col-P campaign lookup keys off
         # L & M, so it shows "n/a" until the user fills them — by design.
         if row.get("disp_kw_type"):
-            _set(ws, "L", r, row["disp_kw_type"])
+            _set(ws, "M", r, row["disp_kw_type"])
         if row.get("disp_match"):
-            _set(ws, "M", r, row["disp_match"])
+            _set(ws, "N", r, row["disp_match"])
         if row.get("disp_broad"):
-            _set(ws, "N", r, row["disp_broad"])
+            _set(ws, "O", r, row["disp_broad"])
         # H/I/J (Organic Rank, Impression Share, CTR) — also user-fillable.
         if row.get("organic_rank") not in (None, ""):
             _set(ws, "H", r, row["organic_rank"])
@@ -471,17 +473,17 @@ def _build_semantics(ws, inp: BuildInput, has_str, sqp_tabs):
         if row.get("ctr") not in (None, ""):
             _set(ws, "J", r, row["ctr"])
         if row.get("product"):
-            _set(ws, "O", r, row["product"])
+            _set(ws, "P", r, row["product"])
         if row.get("placement_mod") is not None:
-            _setf(ws, "Q", r, row["placement_mod"], PCT)        # placement modifier
+            _setf(ws, "R", r, row["placement_mod"], PCT)        # placement modifier
         if row.get("asp") is not None:
-            _setf(ws, "R", r, row["asp"], MONEY)                # ASP
+            _setf(ws, "S", r, row["asp"], MONEY)                # ASP
         if row.get("acos_target") is not None:
-            _setf(ws, "S", r, row["acos_target"], PCT)          # ACoS target
+            _setf(ws, "T", r, row["acos_target"], PCT)          # ACoS target
         for col, f in _sem_formulas(r, has_str, sqp_tabs).items():
             _set(ws, col, r, f)
         # number formats for the formula columns so they read naturally
-        _set_fmt(ws, r, {"C": INT, "D": INT, "E": MONEY, "F": PCT1, "G": PCT1, "T": MONEY})
+        _set_fmt(ws, r, {"C": INT, "D": INT, "E": MONEY, "F": PCT1, "G": PCT1, "U": MONEY})
         r += 1
 
 
