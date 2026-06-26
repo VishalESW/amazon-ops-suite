@@ -168,7 +168,7 @@ def _camp_formulas(r, brand):
         # so SPA/STPP (no E/G) and SB/SBV/SDI (Landing Page in D) all read correctly.
         "I": f'=_xlfn.TEXTJOIN(" | ",TRUE,B{r},C{r},D{r},E{r},F{r},G{r},H{r})',
         "T": f'="{brand} | "&B{r}&" > "&H{r}',
-        "W": f'=B{r}&" | "&E{r}&" | "&G{r}&" | "&F{r}',
+        "W": f'=_xlfn.TEXTJOIN(" | ",TRUE,B{r},E{r},G{r},F{r})',
         "AN": f'=B{r}&"-"&E{r}&"-"&F{r}&"-"&G{r}',
         "AL": f"=ROUND((AI{r}*AJ{r}*AK{r})/(1+AH{r}),2)",
     }

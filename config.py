@@ -101,6 +101,13 @@ class Config:
     CAMPAIGN_AI_KEY = os.getenv("CAMPAIGN_AI_KEY", "")
     CAMPAIGN_AI_MODEL = os.getenv("CAMPAIGN_AI_MODEL", "meta/llama-3.1-8b-instruct")
 
+    # Legal brand/entity name written to the Campaign Naming "Brand" column (col N)
+    # — the account's registered business name, distinct from the Ads profile name.
+    CAMPAIGN_BRAND_LEGAL = os.getenv("CAMPAIGN_BRAND_LEGAL", "SmartAdditions, Inc")
+    # Suffix appended to the short product name to form the Portfolio (col U),
+    # e.g. "Lounge-IT" -> "Lounge-IT - ESW".
+    CAMPAIGN_PORTFOLIO_SUFFIX = os.getenv("CAMPAIGN_PORTFOLIO_SUFFIX", " - ESW")
+
     # Campaign Processor v2 — managers (comma-separated emails). These get the
     # manager role (approve gates, see the approval queue); everyone else is an
     # operator by default.

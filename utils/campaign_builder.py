@@ -13,6 +13,7 @@ import os
 
 from werkzeug.datastructures import FileStorage
 
+from config import cfg
 from utils import campaign_db as cdb
 from utils import campaign_store as cstore
 from utils import campaign_ai as ai
@@ -133,7 +134,18 @@ def assemble(pid):
     _full_product = inp.products[0]["name"] if inp.products else brand
     default_product = (_full_product.split()[0] if _full_product else brand) or brand
     default_asin = inp.products[0]["asin"] if inp.products else ""
+    default_sku = inp.products[0].get("sku", "") if inp.products else ""
     default_asp = next((pr.get("asp") for pr in chosen if pr.get("asp")), DEFAULT_ASP) or DEFAULT_ASP
+    # Account/product context for Campaign Naming auxiliary columns (brand legal
+    # name, portfolio, own ASIN/SKU) — matches the client's master workbook.
+    camp_ctx = {
+        "profile": brand,                       # J  (Ads profile name)
+        "product": default_product,             # B  (short product label)
+        "brand_legal": cfg.CAMPAIGN_BRAND_LEGAL, # N  (legal entity)
+        "portfolio_suffix": cfg.CAMPAIGN_PORTFOLIO_SUFFIX,  # U = product + suffix
+        "asin_sku": (f"{default_asin}/{default_sku}" if default_asin and default_sku
+                     else (default_asin or "")),  # AA
+    }
 
     # ---- Passthrough tabs + per-keyword search volume + CVR ----------------
     sv_by_kw = {}
@@ -371,15 +383,14 @@ def assemble(pid):
     inp.brand_asins = inp.own_brand_asins[:1]
 
     # ---- Campaigns: keyword campaigns + PAT (PT) campaigns -----------------
-    inp.campaign_rows = orch._campaign_rows(sem_rows, brand, default_product,
+    inp.campaign_rows = orch._campaign_rows(sem_rows, camp_ctx,
                                             default_asp, DEFAULT_ACOS, DEFAULT_PLACEMENT)
-    inp.campaign_rows += orch._pat_campaign_rows(pat_types, brand, default_product,
+    inp.campaign_rows += orch._pat_campaign_rows(pat_types, camp_ctx,
                                                  default_asp, DEFAULT_ACOS, DEFAULT_PLACEMENT)
     # SB/SBV (per Root KW), SPM PT Exp. + SDI PT (per PAT cat), SPA, STPP, SDI
     # remarketing — the rest of the client's campaign taxonomy (SPM | CT excluded).
-    comp_asins = [t.get("asin") for t in pat_targets if t.get("asin")]
-    inp.campaign_rows += orch._extra_campaign_rows(roots, pat_types, comp_asins,
-                                                   brand, default_product, DEFAULT_PLACEMENT)
+    inp.campaign_rows += orch._extra_campaign_rows(roots, pat_types, camp_ctx,
+                                                   DEFAULT_PLACEMENT)
 
     meta = {
         "semantics": len(sem_rows),
