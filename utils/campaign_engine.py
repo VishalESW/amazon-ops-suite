@@ -158,7 +158,11 @@ def _sem_formulas(r, has_str, sqp_tabs):
         "E": lk("S"),
         "F": lk("Q"),
         "G": cvr,
-        "Q": "=" + _lk(f"'{S_CAMP}'!$I:$I", f'P{r}&"-"&$M{r}&"-"&$N{r}&"-"&$A{r}',
+        # Campaign-name lookup key must match Campaign Naming AN (= B-E-F-G):
+        # SKW campaigns key on the keyword (A), MKW campaigns on the Root KW (K),
+        # since MKW campaigns are grouped per root (G = root).
+        "Q": "=" + _lk(f"'{S_CAMP}'!$I:$I",
+                       f'P{r}&"-"&$M{r}&"-"&$N{r}&"-"&IF($M{r}="MKW",$K{r},$A{r})',
                        f"'{S_CAMP}'!$AN:$AN", '"n/a"'),
         "U": f"=ROUND((G{r}*S{r}*T{r})/(1+R{r}),2)",
     }

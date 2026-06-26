@@ -357,8 +357,10 @@ def assemble(pid):
         if tag not in pat_types:
             pat_types.append(tag)
         m = asin_pat.get(asin) or {}
-        # A selected own Product ASIN sets the Product Name for this target.
-        prod = m.get("product") or own_name_by_asin.get(m.get("product_asin")) or default_product
+        # Product Name = the SHORT product (matches Campaign Naming B), so PAT's
+        # campaign-name lookup key (Product-PT-Ex.-CatType) resolves against the PT
+        # campaign's AN helper (B-E-F-G). A manual grid override still wins.
+        prod = m.get("product") or default_product
         pat_targets.append({
             "asin": asin, "type": tag,
             "title": asin_names.get(asin, ""),
