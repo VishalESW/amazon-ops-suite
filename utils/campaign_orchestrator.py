@@ -610,13 +610,14 @@ def generate(form, files, out_path, categories=None):
     return out_path, meta
 
 
-def _campaign_rows(sem_rows, brand, product, asp, acos, placement):
+def _campaign_rows(sem_rows, ctx, asp, acos, placement):
     """Keyword campaigns from the rows with a manually-set KW Vol. in Semantics.
 
-    - SKW: one campaign per keyword (G = keyword), goal Rank.
+    - SKW: one campaign per keyword (G = keyword), goal Rank, Default Bid = the
+      per-keyword computed bid.
     - MKW: grouped by Root KW — one campaign per (root, match) present among the
-      MKW-tagged keywords (G = root). Exact ranks (Rank); broader matches are
-      performance (Perf). This matches the client's per-root MKW structure.
+      MKW-tagged keywords (G = root); Ex. ranks (Rank), broader matches Perf,
+      Default Bid blank. Matches the client's per-root MKW structure.
     Only rows where the user filled in disp_kw_type (KW Vol.) are included.
     """
     rows = []
@@ -626,7 +627,6 @@ def _campaign_rows(sem_rows, brand, product, asp, acos, placement):
         if not ktype:
             continue  # skip: no manual KW Vol. entry
         match = (s.get("disp_match") or "").strip()
-        prod = s.get("product") or product
         if ktype.upper() == "MKW":
             root = (s.get("category") or "").strip()
             if not root:
@@ -635,40 +635,29 @@ def _campaign_rows(sem_rows, brand, product, asp, acos, placement):
             if key in seen_mkw:
                 continue
             seen_mkw.add(key)
-            g, goal = root, ("Rank" if match == "Ex." else "Perf")
+            g, goal, zbid = root, ("Rank" if match == "Ex." else "Perf"), ""
         else:  # SKW (or any other single-keyword type)
             g, goal = s["keyword"], "Rank"
-        rows.append({
-            "A": "Create", "B": prod, "C": "SPM",
-            "E": ktype, "F": match, "G": g, "H": goal,
-            "J": brand, "K": 5, "L": "Any Date Range", "M": "Manual Targeting",
-            "P": "Fixed Bids", "Q": placement, "S": placement,
-            "U": prod, "V": "Keyword Targeting",
-            "Z": 0.2, "AA": "", "AB": "Refer Semantics",
-            "AC": "None", "AD": "None", "AE": "None",
-            "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14,
-        })
+            zbid = _skw_bid(s.get("cvr"), asp, acos, placement)
+        row = _aux_cols("SPM", ktype, match, ctx)
+        row.update({"E": ktype, "F": match, "G": g, "H": goal, "Z": zbid,
+                    "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14})
+        rows.append(row)
     return rows
 
 
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _pat_campaign_rows(pat_types, brand, product, asp, acos, placement):
-    """One PT campaign per competitor-ASIN category so PAT's campaign-name XLOOKUP
-    (K&"-PT-Ex.-"&J -> Campaign Naming AN -> I) resolves. AN = B-E-F-G = product-PT-Ex.-type."""
+def _pat_campaign_rows(pat_types, ctx, asp, acos, placement):
+    """One SPM PT Ex. campaign per competitor-ASIN category so PAT's campaign-name
+    XLOOKUP (K&"-PT-Ex.-"&J -> Campaign Naming AN -> I) resolves. AN = B-E-F-G."""
     rows = []
     for cat_type in pat_types:
-        rows.append({
-            "A": "Create", "B": product, "C": "SPM",
-            "E": "PT", "F": "Ex.", "G": cat_type, "H": "Perf",
-            "J": brand, "K": 5, "L": "Any Date Range", "M": "Manual Targeting",
-            "P": "Fixed Bids", "Q": placement, "S": placement,
-            "U": product, "V": "Product Targeting",
-            "Z": 0.2, "AB": "Refer Semantics",
-            "AC": "None", "AD": "None", "AE": "None",
-            "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14,
-        })
+        row = _aux_cols("SPM", "PT", "Ex.", ctx)
+        row.update({"E": "PT", "F": "Ex.", "G": cat_type, "H": "Perf", "Z": 0.2,
+                    "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14})
+        rows.append(row)
     return rows
 
 
@@ -689,40 +678,112 @@ def canon_match(m):
 _SPA_GROUPS = [("Cls.", "Close Match"), ("Los.", "Loose Match"),
                ("Sub.", "Substitutes"), ("Com.", "Complements")]
 _SDI_REMARKETING = [("VREM", "7 - 60 LP"), ("PREM", "30 - 90 LP")]
+_SPA_TARGET = dict(_SPA_GROUPS)
+_SPA_NEG_PHRASE = "Own Branded KWs\nMisspellings KWs\nCompetitor KWs"
 
 
-def _extra_campaign_rows(roots, pat_types, comp_asins, brand, product, placement):
+def _skw_bid(cvr, asp, acos, placement):
+    """Per-keyword Default Bid (col Z) for SKW rows: ROUND((cvr*asp*acos)/(1+plc),2),
+    cvr normalized to a fraction. Blank when no CVR is available."""
+    try:
+        c = float(str(cvr).replace("%", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return ""
+    if not c:
+        return ""
+    if c > 1:
+        c = c / 100
+    return round((c * asp * acos) / (1 + placement), 2)
+
+
+def _aux_cols(ctype, e, f, ctx):
+    """Per-type auxiliary Campaign-Naming columns (bidding/placement/targeting/
+    negatives/brand/portfolio/ASIN), reverse-engineered from the client's master
+    workbook. ctx carries account + product values. Identity cols (D/E/F/G/H) and
+    Z/AH-AK are set by the row builders; Campaign Tag (T) is left to the engine
+    formula for SPM/SPA and blanked for SB/SBV/SDI."""
+    product, profile = ctx["product"], ctx["profile"]
+    d = {"A": "Create", "B": product, "C": ctype, "J": profile, "K": 5,
+         "U": product + ctx["portfolio_suffix"]}
+    if ctype in ("SB", "SBV", "SDI"):
+        d["T"] = ""                     # blank Campaign Tag (suppress engine formula)
+        return d                        # display campaigns are otherwise minimal
+    is_kw = e in ("SKW", "MKW")
+    is_pt = e == "PT"
+    is_spa = ctype == "SPA"
+    d["L"] = "Any Date Range"
+    d["M"] = "Automatic Targeting" if is_spa else "Manual Targeting"
+    d["N"] = ctx["brand_legal"]
+    d["AA"] = ctx["asin_sku"]
+    # Bidding Strategy (P)
+    if e == "SKW" or (e == "MKW" and f == "Ex."):
+        d["P"] = "Fixed Bids"
+    elif e == "MKW":                     # Br./Br.M/Ph.
+        d["P"] = "Down Only"
+    elif is_pt or e == "STPP":
+        d["P"] = "Up and Down Only"
+    else:                                # SPA / CT
+        d["P"] = "Down Only"
+    # Placement Top-of-Search (Q) + Rest-of-Search (S)
+    if e == "SKW" or (e == "MKW" and f == "Ex."):
+        d["Q"] = 1
+    elif e == "MKW" and f == "Br.M":
+        d["Q"] = 0.5; d["S"] = 0.5
+    elif is_pt or e == "STPP":
+        d["Q"] = 0.5
+    elif is_spa:
+        d["Q"] = 0.5; d["S"] = 0.5
+    elif e == "CT" and f == "Ex.":
+        d["Q"] = 0.5; d["S"] = 0.5
+    # Targeting Type (V)
+    d["V"] = ("Keyword Targeting" if is_kw else
+              "Product Targeting" if is_pt else "PAT")
+    # Targets (AB)
+    if is_kw or is_pt:
+        d["AB"] = "Refer Semantics"
+    elif is_spa:
+        d["AB"] = _SPA_TARGET.get(f, "")
+    elif e == "STPP":
+        d["AB"] = ctx["asin_sku"]
+    # Negatives (AC/AD/AE)
+    if e == "MKW" and f in ("Br.", "Br.M", "Ph."):
+        d["AC"], d["AD"], d["AE"] = "Own Branded KWs", "SKW EX. Match Keywords", "None"
+    elif is_spa:
+        d["AC"], d["AD"], d["AE"] = _SPA_NEG_PHRASE, "None", "Own Branded ASINs"
+    elif is_kw or is_pt:
+        d["AC"], d["AD"], d["AE"] = "None", "None", "None"
+    return d
+
+
+def _extra_campaign_rows(roots, pat_types, ctx, placement):
     """The non-SPM-keyword campaign rows the client's taxonomy needs (excluding
     SPM | CT): SB & SBV per Root KW (Ex.), SPM PT Exp. + SDI PT per PAT category,
-    4 fixed SPA auto groups, STPP Ex./Exp. brand-defence (all PAT competitor ASINs),
-    and SDI VREM/PREM remarketing. Bids/targets left blank where filled manually;
-    the I-column TEXTJOIN builds each name from B|C|D|E|F|G|H."""
+    4 fixed SPA auto groups, STPP Ex./Exp. brand-defence, SDI VREM/PREM remarketing.
+    Per-type columns come from _aux_cols; identity (D/E/F/G/H) set here."""
     rows = []
 
-    def base(**kw):
-        d = {"A": "Create", "B": product, "J": brand, "K": 5,
-             "L": "Any Date Range", "M": "Manual Targeting", "AL": ""}
-        d.update(kw)
-        return d
+    def mk(ctype, e, f, g, h, d=""):
+        row = _aux_cols(ctype, e, f, ctx)
+        row.update({"D": d, "E": e, "F": f, "G": g, "H": h, "AL": ""})
+        return row
 
     # SB (PC-Store) + SBV (PP): one per unique Root KW, Exact match.
     for root in roots:
-        rows.append(base(C="SB",  D="PC-Store", E="MKW", F="Ex.", G=root, H="Perf"))
-        rows.append(base(C="SBV", D="PP",       E="MKW", F="Ex.", G=root, H="Rank"))
-    # SPM PT Expanded + SDI PT Exact: one per PAT category.
+        rows.append(mk("SB",  "MKW", "Ex.", root, "Perf", d="PC-Store"))
+        rows.append(mk("SBV", "MKW", "Ex.", root, "Rank", d="PP"))
+    # SPM PT Expanded (Default Bid 0.2) + SDI PT Exact: one per PAT category.
     for cat in pat_types:
-        rows.append(base(C="SPM", E="PT", F="Exp.", G=cat, H="Perf", AB="Refer Semantics"))
-        rows.append(base(C="SDI", D="PP", E="PT", F="Ex.", G=cat, H="Perf"))
-    # SPA auto-targeting: 4 fixed groups.
-    for f, tgt in _SPA_GROUPS:
-        rows.append(base(C="SPA", F=f, H="Rsrch", AB=tgt))
-    # STPP brand defence: Ex.+Exp., targeting all PAT competitor ASINs.
-    stpp_tgt = ", ".join(a for a in comp_asins if a)
-    rows.append(base(C="SPM", E="STPP", F="Ex.",  H="Perf",  AB=stpp_tgt))
-    rows.append(base(C="SPM", E="STPP", F="Exp.", H="Rsrch", AB=stpp_tgt))
+        r = mk("SPM", "PT", "Exp.", cat, "Perf"); r["Z"] = 0.2; rows.append(r)
+        rows.append(mk("SDI", "PT", "Ex.", cat, "Perf", d="PP"))
+    # SPA auto-targeting: 4 fixed groups (Targets set by _aux_cols).
+    for f, _tgt in _SPA_GROUPS:
+        rows.append(mk("SPA", "", f, "", "Rsrch"))
+    # STPP brand defence: Ex.+Exp. (Targets = own ASIN/SKU, set by _aux_cols).
+    rows.append(mk("SPM", "STPP", "Ex.",  "", "Perf"))
+    rows.append(mk("SPM", "STPP", "Exp.", "", "Rsrch"))
     # SDI remarketing: 2 fixed lookback windows.
     for e, win in _SDI_REMARKETING:
-        rows.append(base(C="SDI", D="PP", E=e, F="Adv. Prd.", G=win, H="Perf"))
+        rows.append(mk("SDI", e, "Adv. Prd.", win, "Perf", d="PP"))
     return rows
 
 
