@@ -81,7 +81,8 @@ def _date_filters(days=90):
         {"key": "COMPARE_DATE", "conditions": [
             {"operator": ">=", "values": [prev_start.strftime(fmt)]},
             {"operator": "<=", "values": [prev_end.strftime(fmt)]}], "logical_operator": "AND"},
-        {"key": "IMPRESSIONS", "conditions": [{"operator": ">", "values": ["0"]}]},
+        # NOTE: no IMPRESSIONS>0 filter — show ALL of the profile's ASINs/listings,
+        # not just the ones that happened to get ad impressions in the window.
     ]
 
 
