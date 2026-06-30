@@ -987,6 +987,30 @@ def build_workbook(pid):
                     "download": url_for("download_file", filename=filename)})
 
 
+@bp.route("/projects/<pid>/bulksheet", methods=["POST"])
+def build_bulksheet(pid):
+    """Generate the Amazon Sponsored Products bulk-upload sheet (Entity rows) so it
+    uploads directly in Bulk Operations — no manual conversion. SP only (SB/SD need
+    creative assets); net-new (Operation=Create, temp-linked, one ad group/campaign)."""
+    p = cdb.get_project(pid)
+    if not p:
+        abort(404)
+    from utils import campaign_builder as cb
+    from utils import campaign_bulksheet as bs
+    import time as _t
+    safe = "".join(ch if ch.isalnum() else "_" for ch in (p.get("name") or "Campaign")).strip("_") or "Campaign"
+    filename = f"SP_Bulksheet_{safe}_{_t.strftime('%Y%m%d-%H%M%S')}.xlsx"
+    out_path = os.path.join(cfg.OUTPUT_FOLDER, filename)
+    try:
+        inp, _meta = cb.assemble(pid)
+        _, n_camp = bs.build_sp_bulksheet(inp, out_path)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "filename": filename, "campaigns": n_camp,
+                    "download": url_for("download_file", filename=filename)})
+
+
 # -------------------------------------------------------------- approvals ----
 @bp.route("/projects/<pid>/approve", methods=["POST"])
 def approve(pid):

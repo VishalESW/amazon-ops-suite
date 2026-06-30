@@ -381,10 +381,12 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
       <h2 class="text-lg font-semibold mb-1">Verify &amp; Build</h2>
       <p class="text-sm text-muted-foreground mb-4">Review the summary, then generate the workbook with live formulas.</p>
       <div id="buildSummary" class="grid gap-3 sm:grid-cols-3 mb-4"></div>
-      <div class="flex items-center gap-3">
-        <button onclick="doBuild()" id="buildBtn" class="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Generate workbook</button>
+      <div class="flex flex-wrap items-center gap-3">
+        <button onclick="doBuild()" id="buildBtn" class="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Generate planning workbook</button>
+        <button onclick="doBulksheet()" id="bulkBtn" class="rounded-md border border-input bg-background px-4 py-2.5 text-sm font-semibold hover:bg-accent transition">Generate Amazon SP bulksheet</button>
         <span id="buildMsg" class="text-sm text-muted-foreground"></span>
       </div>
+      <p class="text-xs text-muted-foreground mt-2">Planning workbook = the full 20-tab analysis file. <strong>Amazon SP bulksheet</strong> = upload-ready Entity rows for Bulk Operations (Sponsored Products only — keyword/PT/auto; one ad group per campaign, no manual conversion). SB/SBV/SDI need creative assets and are excluded.</p>
       <div id="buildResult" class="hidden mt-5 rounded-lg border border-success/40 p-4" style="background:hsl(var(--success)/.08)">
         <p class="font-medium">Workbook ready</p>
         <p id="buildMeta" class="mt-1 text-xs text-muted-foreground"></p>
@@ -1154,7 +1156,22 @@ async function doBuild(){
       toast('Workbook generated','success');
     } else { toast(r.error||'Build failed','error'); }
   }catch(e){ toast('Network error: '+(e.message||e),'error'); }
-  finally{ btn.disabled=false; btn.textContent='Generate workbook'; document.getElementById('buildMsg').textContent=''; }
+  finally{ btn.disabled=false; btn.textContent='Generate planning workbook'; document.getElementById('buildMsg').textContent=''; }
+}
+
+async function doBulksheet(){
+  const btn=document.getElementById('bulkBtn'); btn.disabled=true; btn.textContent='Building…';
+  document.getElementById('buildMsg').textContent='Generating Amazon SP bulksheet…';
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/bulksheet`,{method:'POST'}).then(r=>r.json());
+    if(r.success){
+      document.getElementById('buildDl').href=r.download;
+      document.getElementById('buildMeta').textContent=`Amazon SP bulksheet · ${r.campaigns} campaign(s) · upload directly in Bulk Operations`;
+      document.getElementById('buildResult').classList.remove('hidden');
+      toast('SP bulksheet generated','success');
+    } else { toast(r.error||'Bulksheet failed','error'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+  finally{ btn.disabled=false; btn.textContent='Generate Amazon SP bulksheet'; document.getElementById('buildMsg').textContent=''; }
 }
 
 async function advanceTo(to){
