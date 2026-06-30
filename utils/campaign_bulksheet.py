@@ -42,6 +42,42 @@ _PAT_BUCKET = {"Main": "main_competitor_asins", "Low Rated": "lower_rated_asins"
 DEFAULT_AG_BID = 0.75
 
 
+def _clean(terms):
+    """Drop junk (blanks, 1-char, flag values like 'Y'/'N', non-alpha) + dedupe."""
+    out = []
+    for t in terms:
+        t = str(t or "").strip()
+        if len(t) < 2 or not any(ch.isalpha() for ch in t):
+            continue
+        out.append(t)
+    return list(dict.fromkeys(out))
+
+
+def _le4(terms):
+    """Negative PHRASE keywords are capped at 4 words by Amazon — drop longer ones."""
+    return [t for t in terms if t and len(str(t).split()) <= 4]
+
+
+def _negatives(cr, inp, skw_kws):
+    """Expand the planning negative LABELS (cols AC/AD/AE) into real negative rows.
+    AC -> negative phrase, AD -> negative exact, AE -> negative product targeting.
+    Returns list of (entity, field, value, match) tuples. Labels with no data source
+    (e.g. 'Misspellings KWs') are skipped."""
+    own_kw = _le4(_clean((inp.own_branded_kws or []) + (inp.own_branded_searches or [])))
+    comp_kw = _le4(_clean(inp.competitor_searches or []))
+    out = []
+    ac = str(cr.get("AC") or "")
+    if "Own Branded KWs" in ac:
+        out += [("Negative Keyword", k, "negativePhrase") for k in own_kw]
+    if "Competitor KWs" in ac:
+        out += [("Negative Keyword", k, "negativePhrase") for k in comp_kw]
+    if "SKW EX. Match Keywords" in str(cr.get("AD") or ""):
+        out += [("Negative Keyword", k, "negativeExact") for k in _clean(skw_kws)]
+    if "Own Branded ASINs" in str(cr.get("AE") or ""):
+        out += [("Negative Product Targeting", a, "") for a in (inp.own_brand_asins or [])]
+    return out
+
+
 def _name(cr):
     """Campaign Name = TEXTJOIN(' | ', skip blanks, B,C,D,E,F,G,H)."""
     parts = [cr.get(c, "") for c in ("B", "C", "D", "E", "F", "G", "H")]
@@ -63,6 +99,8 @@ def build_sp_rows(inp):
 
     # Keyword pool per (root, match) for MKW expansion.
     sem = inp.semantics_rows
+    # All SKW keywords (exact) — used to expand the "SKW EX. Match Keywords" negative.
+    skw_kws = [s["keyword"] for s in sem if (s.get("disp_kw_type") or "").upper() == "SKW"]
     rows = []
     cid = -1   # temp campaign id counter (negative)
 
@@ -95,6 +133,15 @@ def build_sp_rows(inp):
         if own_sku or own_asin:
             add(Entity="Product Ad", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
                 "State": "enabled", "SKU": own_sku or own_asin})
+        # Negatives (expanded from the planning AC/AD/AE labels)
+        for entity, val, match in _negatives(cr, inp, skw_kws):
+            if entity == "Negative Keyword":
+                add(Entity="Negative Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                    "State": "enabled", "Keyword Text": val, "Match Type": match})
+            else:  # Negative Product Targeting
+                add(Entity="Negative Product Targeting", **{"Campaign ID": camp_id,
+                    "Ad Group ID": ag_id, "State": "enabled",
+                    "Product Targeting Expression": f'asin="{val}"'})
         # Targeting
         if is_auto:
             continue  # auto campaigns: Amazon creates the auto-targeting groups
