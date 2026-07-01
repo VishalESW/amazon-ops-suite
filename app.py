@@ -70,10 +70,20 @@ def create_app():
         if p.startswith("/static") or p.startswith("/__clerk") or p in _PUBLIC_PATHS:
             return None
         from utils import clerk_auth
+        # A fetch/XHR call sends Accept: */* (or application/json); a real page
+        # navigation sends Accept: text/html. For API calls, return JSON errors so
+        # the client never receives an HTML sign-in page (which breaks r.json() with
+        # "Unexpected token '<'"); redirect only real navigations.
+        wants_html = "text/html" in request.headers.get("Accept", "")
         auth = clerk_auth.authenticate(request)
         if not auth["signed_in"]:
-            return redirect("/sign-in")
+            if wants_html:
+                return redirect("/sign-in")
+            return jsonify({"success": False,
+                            "error": "Session expired — refresh the page and sign in again."}), 401
         if not clerk_auth.domain_ok(auth.get("email")):
+            if not wants_html:
+                return jsonify({"success": False, "error": "Access denied for this account."}), 403
             return render_template("access_denied.html",
                                    email=auth.get("email"),
                                    domain=cfg.AUTH_ALLOWED_DOMAIN), 403

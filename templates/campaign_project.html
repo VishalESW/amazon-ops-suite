@@ -419,9 +419,16 @@ if(STEP==='asins') loadAsins(false);
 async function saveSeed(key, action){
   const ta=document.getElementById('seed_'+key);
   try{
-    const r=await fetch(`/campaign/projects/${PID}/seed/${key}`,{method:'POST',
+    const res=await fetch(`/campaign/projects/${PID}/seed/${key}`,{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({content:ta.value, action})}).then(r=>r.json());
+      body:JSON.stringify({content:ta.value, action})});
+    let r=null;
+    try{ r=await res.json(); }catch(_){ r=null; }   // guard against HTML (auth/error page)
+    if(!r){
+      toast(res.status===401 ? 'Session expired — refresh the page and sign in again.'
+                             : `Save failed (HTTP ${res.status}). Refresh and try again.`, 'error');
+      return;
+    }
     if(!r.success){ toast(r.error||'Save failed','error'); return; }
     if(r.submitted){ toast('Submitted for approval','success'); setTimeout(()=>location.assign('?step=seed'),500); }
     else { toast('Draft saved','success'); }
