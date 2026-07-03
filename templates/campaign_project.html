@@ -245,16 +245,16 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     {% elif cur == 'uploads' %}
     <section class="cp-card p-5">
       <h2 class="text-lg font-semibold">Upload research workbook</h2>
-      <p class="text-sm text-muted-foreground mb-4">Upload a single <strong>.xlsx</strong> file containing all your research sheets. Each sheet is auto-detected by name and headers — POE, H10, BA, SQP, Brand, BA TST, Search Term Report.</p>
+      <p class="text-sm text-muted-foreground mb-4">Upload a single <strong>.xlsx</strong> workbook (each sheet auto-detected) or a single <strong>.csv</strong> file (one data source). Detected by name and headers — POE, H10, BA, SQP, Brand, BA TST, Search Term Report.</p>
 
       <div id="wbDropzone" onclick="document.getElementById('wbFile').click()"
            class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-lg p-10 cursor-pointer hover:bg-accent/40 transition select-none">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
         </svg>
-        <p class="text-sm font-medium text-foreground">Click to select workbook</p>
-        <p class="text-xs text-muted-foreground">Single .xlsx or .xls — one sheet per data source</p>
-        <input type="file" id="wbFile" accept=".xlsx,.xls" class="hidden" onchange="uploadWorkbook(this)">
+        <p class="text-sm font-medium text-foreground">Click to select workbook or CSV</p>
+        <p class="text-xs text-muted-foreground">.xlsx / .xls (one sheet per data source) or a single .csv</p>
+        <input type="file" id="wbFile" accept=".xlsx,.xls,.csv" class="hidden" onchange="uploadWorkbook(this)">
       </div>
       <div id="wbMsg" class="mt-2 text-xs text-muted-foreground text-center hidden"></div>
 
