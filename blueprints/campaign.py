@@ -45,6 +45,22 @@ STEPS = [
 ]
 
 
+def _read_csv_raw(raw_bytes):
+    """Read raw CSV bytes into a header-less all-string DataFrame (like an unparsed
+    sheet). Tolerant of BOMs and ragged rows (pads short rows) so preamble-heavy
+    Helium10 / POE exports load without the C parser rejecting them."""
+    text = raw_bytes.decode("utf-8-sig", errors="replace")
+    try:
+        return pd.read_csv(io.StringIO(text), header=None, dtype=object,
+                           keep_default_na=False, engine="python").fillna("")
+    except Exception:
+        import csv as _csv
+        rows = list(_csv.reader(io.StringIO(text)))
+        width = max((len(r) for r in rows), default=0)
+        rows = [r + [""] * (width - len(r)) for r in rows]
+        return pd.DataFrame(rows).fillna("")
+
+
 def _current_user():
     """Email of the signed-in user. Falls back to a dev identity when auth is off."""
     email = getattr(g, "user_email", None)
@@ -312,25 +328,41 @@ def upload_workbook(pid):
     fs = request.files.get("workbook")
     if not fs or not getattr(fs, "filename", ""):
         return jsonify({"success": False, "error": "No file provided"}), 400
-    if not fs.filename.lower().endswith((".xlsx", ".xls")):
-        return jsonify({"success": False, "error": "Only .xlsx / .xls files are supported"}), 400
+    name_l = fs.filename.lower()
+    if not name_l.endswith((".xlsx", ".xls", ".csv")):
+        return jsonify({"success": False, "error": "Only .xlsx / .xls / .csv files are supported"}), 400
 
     raw = fs.read()
-    try:
-        xf = pd.ExcelFile(io.BytesIO(raw))
-    except Exception as e:
-        return jsonify({"success": False, "error": f"Cannot read workbook: {e}"}), 400
+    # A CSV is a single table -> treat it as one "sheet" (named after the file);
+    # a workbook contributes each of its sheets. Both then run through the same
+    # per-sheet source detection + parsing below.
+    xf = None
+    if name_l.endswith(".csv"):
+        try:
+            stem = os.path.splitext(os.path.basename(fs.filename))[0]
+            sheet_iter = [(stem, _read_csv_raw(raw))]
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Cannot read CSV: {e}"}), 400
+    else:
+        try:
+            xf = pd.ExcelFile(io.BytesIO(raw))
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Cannot read workbook: {e}"}), 400
+        sheet_iter = [(n, None) for n in xf.sheet_names]
 
     uploads = cdb.get_state(pid, "uploads", [])
     added, summary = 0, []
 
-    for sheet_name in xf.sheet_names:
-        try:
-            raw_df = xf.parse(sheet_name, header=None, dtype=object).fillna("")
-        except Exception as e:
-            summary.append({"sheet": sheet_name, "source": None, "status": "error",
-                            "error": str(e)})
-            continue
+    for sheet_name, pre_df in sheet_iter:
+        if pre_df is not None:
+            raw_df = pre_df
+        else:
+            try:
+                raw_df = xf.parse(sheet_name, header=None, dtype=object).fillna("")
+            except Exception as e:
+                summary.append({"sheet": sheet_name, "source": None, "status": "error",
+                                "error": str(e)})
+                continue
 
         source = orch.detect_source_from_sheet(sheet_name, raw_df)
         if not source:
