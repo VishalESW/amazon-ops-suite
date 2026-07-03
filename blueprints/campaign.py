@@ -261,7 +261,6 @@ UPLOAD_FIELDS = {
 GRID_LABELS = {"poe": "Product Opportunity Explorer", "h10": "H10 Reverse ASIN",
                "ba": "Brand Analytics", "sqp": "SQP Report", "brand": "Brand (H10)",
                "batst": "BA TST", "str": "Search Term Report"}
-ROW_CAP = 2000  # max rows rendered in a selection grid
 
 
 def _label_for(source, filename):
@@ -431,10 +430,10 @@ def get_table(pid, filekey):
     if grid is None:
         abort(404)
     sels = cdb.get_state(pid, "selections", {}).get(filekey, {})
-    rows = grid["rows"][:ROW_CAP]
+    rows = grid["rows"]   # render every row — no cap
     return jsonify({"success": True, "columns": grid["columns"], "rows": rows,
                     "keyword_col": grid["keyword_col"], "asin_cols": grid["asin_cols"],
-                    "selections": sels, "truncated": len(grid["rows"]) > ROW_CAP,
+                    "selections": sels, "truncated": False,
                     "total": len(grid["rows"])})
 
 
@@ -521,7 +520,7 @@ def asin_table(pid, filekey):
     saved_tags = cdb.get_state(pid, "asin_tags", {})
     merged_tags = {**auto_tags, **saved_tags}
 
-    full_rows = rows[:ROW_CAP]
+    full_rows = rows   # render every row — no cap
     return jsonify({"success": True, "asins": out,
                     "tags": merged_tags, "pat_tags": PAT_TAGS,
                     "columns": grid["columns"],
@@ -529,7 +528,7 @@ def asin_table(pid, filekey):
                     "asin_cols": grid.get("asin_cols", []),
                     "name_by_asin": name_by_asin,
                     "total": len(rows),
-                    "truncated": len(rows) > ROW_CAP})
+                    "truncated": False})
 
 
 @bp.route("/projects/<pid>/asin-tags", methods=["GET"])
