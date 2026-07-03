@@ -18,7 +18,7 @@ import uuid
 
 import pandas as pd
 from flask import (Blueprint, render_template, request, jsonify, redirect,
-                   url_for, g, abort)
+                   url_for, g, abort, send_file)
 from werkzeug.datastructures import FileStorage
 
 from config import cfg
@@ -407,6 +407,22 @@ def upload_workbook(pid):
 
     cdb.save_state(pid, "uploads", uploads)
     return jsonify({"success": True, "added": added, "summary": summary, "uploads": uploads})
+
+
+@bp.route("/projects/<pid>/uploads/<filekey>/download")
+def download_upload(pid, filekey):
+    """Download the stored copy of an uploaded sheet (one .xlsx per data source),
+    so the user can recover it from the Upload Files tab if the original is lost."""
+    if not cdb.get_project(pid):
+        abort(404)
+    path = cstore.raw_path(pid, filekey)
+    if not path or not os.path.exists(path):
+        abort(404)
+    up = next((u for u in cdb.get_state(pid, "uploads", []) if u["filekey"] == filekey), None)
+    ext = os.path.splitext(path)[1] or ".xlsx"
+    base = (up.get("label") if up else "") or "upload"
+    safe = "".join(c if (c.isalnum() or c in " -_") else "_" for c in base).strip() or "upload"
+    return send_file(path, as_attachment=True, download_name=f"{safe}{ext}")
 
 
 @bp.route("/projects/<pid>/uploads/<filekey>/delete", methods=["POST"])
