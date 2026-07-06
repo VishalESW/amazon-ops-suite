@@ -54,6 +54,24 @@ _SEL_COL_MAP = {
 }
 
 
+def _pair_title_cols(columns, asin_cols):
+    """Map each ASIN column index -> its product-title column index. Handles both
+    POE ('Top Clicked Product 1 (Asin)' / '(Title)') and Brand Analytics / BA TST
+    ('Top Clicked Product #1: ASIN' / ': Product Title') naming by matching the
+    shared prefix (text before 'asin') against a same-prefix column containing 'title'."""
+    lows = [str(c).lower() for c in columns]
+    out = {}
+    for ci in asin_cols:
+        if ci >= len(lows) or "asin" not in lows[ci]:
+            continue
+        prefix = lows[ci].rsplit("asin", 1)[0]
+        for ti, tcl in enumerate(lows):
+            if ti != ci and prefix and tcl.startswith(prefix) and "title" in tcl:
+                out[ci] = ti
+                break
+    return out
+
+
 def _col0_selections(grid):
     """Read column A of a parsed grid as a pre-done selection: {rowIndex: tag}.
     Rows whose first cell isn't a recognised Y/N/B/C marker are left unselected."""
@@ -522,15 +540,7 @@ def asin_table(pid, filekey):
     # Pair each ASIN column with its title column so competitor ASINs (not in the
     # AdLabs dashboard) still show a title, e.g. POE "Top Clicked Product N (Asin)"
     # -> "Top Clicked Product N (Title)".
-    col_lows = [str(c).lower() for c in grid["columns"]]
-    title_col_map = {}
-    for ci in grid.get("asin_cols", []):
-        if ci < len(grid["columns"]) and col_lows[ci].endswith("(asin)"):
-            target = grid["columns"][ci][:-6].lower() + "(title)"
-            for ti, cl in enumerate(col_lows):
-                if cl == target:
-                    title_col_map[ci] = ti
-                    break
+    title_col_map = _pair_title_cols(grid["columns"], grid.get("asin_cols", []))
     asin_title = {}
     for row in rows:
         for ci in grid.get("asin_cols", []):
@@ -865,21 +875,10 @@ def get_pat_all_asins(pid):
         if not asin_cols:
             asin_cols = [i for i, c in enumerate(columns) if "asin" in c.lower()]
 
-        # For POE files: "Top Clicked Product N (Asin)" pairs with "Top Clicked Product N (Title)"
-        # Build asin_col_idx -> title_col_idx map using the (Asin)→(Title) name substitution.
-        title_col_map = {}
+        # Pair each ASIN column with its title column (POE '(Asin)'/'(Title)' and
+        # Brand Analytics / BA TST '...: ASIN'/'...: Product Title').
+        title_col_map = _pair_title_cols(columns, asin_cols)
         col_lows = [c.lower() for c in columns]
-        for ci in asin_cols:
-            if ci >= len(columns):
-                continue
-            col_low = col_lows[ci]
-            if col_low.endswith("(asin)"):
-                prefix = columns[ci][:-6]  # strip trailing "(Asin)" — always 6 chars
-                target_low = prefix.lower() + "(title)"
-                for ti, cl in enumerate(col_lows):
-                    if cl == target_low:
-                        title_col_map[ci] = ti
-                        break
 
         # Conversion-rate column for this file (first header matching a CVR token).
         cvr_col = next((i for i, cl in enumerate(col_lows)
