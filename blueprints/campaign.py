@@ -519,6 +519,34 @@ def asin_table(pid, filekey):
     all_rows = grid["rows"]
     rows = [row for i, row in enumerate(all_rows) if not y_or_comp or i in y_or_comp]
 
+    # Pair each ASIN column with its title column so competitor ASINs (not in the
+    # AdLabs dashboard) still show a title, e.g. POE "Top Clicked Product N (Asin)"
+    # -> "Top Clicked Product N (Title)".
+    col_lows = [str(c).lower() for c in grid["columns"]]
+    title_col_map = {}
+    for ci in grid.get("asin_cols", []):
+        if ci < len(grid["columns"]) and col_lows[ci].endswith("(asin)"):
+            target = grid["columns"][ci][:-6].lower() + "(title)"
+            for ti, cl in enumerate(col_lows):
+                if cl == target:
+                    title_col_map[ci] = ti
+                    break
+    asin_title = {}
+    for row in rows:
+        for ci in grid.get("asin_cols", []):
+            if ci >= len(row):
+                continue
+            m = orch._ASIN_RE.search(str(row[ci] or "").strip())
+            if not m:
+                continue
+            a = m.group(0).upper()
+            if not asin_title.get(a):
+                ti = title_col_map.get(ci)
+                if ti is not None and ti < len(row):
+                    t = str(row[ti] or "").strip()
+                    if t:
+                        asin_title[a] = t
+
     kc = grid.get("keyword_col")
     seen, out = set(), []
     for row in rows:
@@ -536,7 +564,8 @@ def asin_table(pid, filekey):
             seen.add(asin)
             out.append({"asin": asin, "context": str(ctx)[:60],
                         "col": grid["columns"][ci] if ci < len(grid["columns"]) else "",
-                        "product_name": name_by_asin.get(asin, "")})
+                        # AdLabs name first (own products), else the file's title.
+                        "product_name": name_by_asin.get(asin) or asin_title.get(asin, "")})
 
     # Auto-detect a PAT-type selection column (any column whose values match the tag names)
     pat_tags_lower = {t.lower(): t for t in PAT_TAGS}
