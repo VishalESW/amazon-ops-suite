@@ -245,16 +245,16 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
     {% elif cur == 'uploads' %}
     <section class="cp-card p-5">
       <h2 class="text-lg font-semibold">Upload research workbook</h2>
-      <p class="text-sm text-muted-foreground mb-4">Upload a single <strong>.xlsx</strong> workbook (each sheet auto-detected) or a single <strong>.csv</strong> file (one data source). Detected by name and headers — POE, H10, BA, SQP, Brand, BA TST, Search Term Report.</p>
+      <p class="text-sm text-muted-foreground mb-4">Upload <strong>one or more</strong> files — <strong>.xlsx</strong> workbooks (each sheet auto-detected) and/or <strong>.csv</strong> files (one data source each). Select several at once. Detected by name and headers — POE, H10, BA, SQP, Brand, BA TST, Search Term Report.</p>
 
       <div id="wbDropzone" onclick="document.getElementById('wbFile').click()"
            class="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-border rounded-lg p-10 cursor-pointer hover:bg-accent/40 transition select-none">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
         </svg>
-        <p class="text-sm font-medium text-foreground">Click to select workbook or CSV</p>
-        <p class="text-xs text-muted-foreground">.xlsx / .xls (one sheet per data source) or a single .csv</p>
-        <input type="file" id="wbFile" accept=".xlsx,.xls,.csv" class="hidden" onchange="uploadWorkbook(this)">
+        <p class="text-sm font-medium text-foreground">Click to select workbooks or CSVs</p>
+        <p class="text-xs text-muted-foreground">One or more .xlsx / .xls / .csv files — select several at once</p>
+        <input type="file" id="wbFile" accept=".xlsx,.xls,.csv" multiple class="hidden" onchange="uploadWorkbook(this)">
       </div>
       <div id="wbMsg" class="mt-2 text-xs text-muted-foreground text-center hidden"></div>
 
@@ -455,24 +455,28 @@ if(STEP==='uploads') refreshUploads();
 
 const SOURCE_LABELS={poe:'POE',h10:'H10',ba:'Brand Analytics',sqp:'SQP',brand:'Brand',batst:'BA TST',str:'Search Term Report'};
 async function uploadWorkbook(input){
-  const file=input.files[0]; if(!file) return;
+  const files=[...(input.files||[])]; if(!files.length) return;
   const dropzone=document.getElementById('wbDropzone');
   const msg=document.getElementById('wbMsg');
   dropzone.style.opacity='0.5'; dropzone.style.pointerEvents='none';
-  msg.textContent=`Uploading ${file.name}…`; msg.classList.remove('hidden');
-  const fd=new FormData(); fd.append('workbook', file);
-  try{
-    const r=await fetch(`/campaign/projects/${PID}/upload-workbook`,{method:'POST',body:fd}).then(r=>r.json());
-    if(r.success){
-      renderWorkbookSummary(r.summary);
-      renderUploads(r.uploads);
-      toast(r.added>0?`${r.added} sheet(s) imported`:'No recognised sheets found',r.added>0?'success':'error');
-    } else { toast(r.error||'Upload failed','error'); }
-  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
-  finally{
-    dropzone.style.opacity=''; dropzone.style.pointerEvents='';
-    msg.classList.add('hidden'); input.value='';
+  msg.classList.remove('hidden');
+  let allSummary=[], lastUploads=null, added=0, failed=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    msg.textContent=`Uploading ${file.name} (${i+1}/${files.length})…`;
+    const fd=new FormData(); fd.append('workbook', file);
+    try{
+      const r=await fetch(`/campaign/projects/${PID}/upload-workbook`,{method:'POST',body:fd}).then(r=>r.json());
+      if(r.success){ allSummary=allSummary.concat(r.summary||[]); lastUploads=r.uploads; added+=r.added||0; }
+      else { failed++; toast(`${file.name}: ${r.error||'upload failed'}`,'error'); }
+    }catch(e){ failed++; toast(`${file.name}: network error`,'error'); }
   }
+  if(allSummary.length) renderWorkbookSummary(allSummary);
+  if(lastUploads) renderUploads(lastUploads);
+  toast(`${added} sheet(s) imported from ${files.length} file(s)`+(failed?`, ${failed} failed`:''),
+        added>0?'success':'error');
+  dropzone.style.opacity=''; dropzone.style.pointerEvents='';
+  msg.classList.add('hidden'); input.value='';
 }
 function renderWorkbookSummary(summary){
   if(!summary||!summary.length) return;
