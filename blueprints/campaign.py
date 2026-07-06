@@ -816,8 +816,11 @@ def get_pat_all_asins(pid):
     """Flat deduplicated ASIN list from all SQP/BA/POE files with product names."""
     if not cdb.get_project(pid):
         abort(404)
-    ALLOWED = {"sqp", "ba", "poe"}
+    # PAT competitor ASINs come only from POE / Brand Analytics / BA TST files
+    # (their "Top Clicked Product" columns). Not H10 / SQP / Brand.
+    ALLOWED = {"poe", "ba", "batst"}
     uploads = cdb.get_state(pid, "uploads", [])
+    selections = cdb.get_state(pid, "selections", {})
     asin_tags = cdb.get_state(pid, "asin_tags", {})
     asin_names = cdb.get_state(pid, "asin_names", {})
     asin_pat = cdb.get_state(pid, "asin_pat", {})  # {asin: {source,product,asp,acos}}
@@ -884,7 +887,13 @@ def get_pat_all_asins(pid):
         cvr_col = next((i for i, cl in enumerate(col_lows)
                         if any(tok in cl for tok in CVR_TOKENS)), None)
 
-        for row in grid["rows"]:
+        # Only surface competitor ASINs from the keyword rows the user SELECTED
+        # (tagged Y or Competitor); if this file has no selection yet, use all rows.
+        file_sels = selections.get(u["filekey"], {})
+        y_or_comp = {int(ri) for ri, tag in file_sels.items() if tag in ("Y", "Competitor")}
+        for i, row in enumerate(grid["rows"]):
+            if y_or_comp and i not in y_or_comp:
+                continue
             row_cvr = ""
             if cvr_col is not None and cvr_col < len(row):
                 row_cvr = str(row[cvr_col] or "").strip()
