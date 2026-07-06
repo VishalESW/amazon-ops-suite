@@ -45,6 +45,27 @@ STEPS = [
 ]
 
 
+# First column (A) of an uploaded sheet may carry a pre-done keyword selection:
+# Y (target) / N (skip) / B (Brand) / C (Competitor). Map those to grid tags.
+_SEL_COL_MAP = {
+    "y": "Y", "yes": "Y", "n": "N", "no": "N",
+    "b": "Brand", "brand": "Brand",
+    "c": "Competitor", "comp": "Competitor", "competitor": "Competitor",
+}
+
+
+def _col0_selections(grid):
+    """Read column A of a parsed grid as a pre-done selection: {rowIndex: tag}.
+    Rows whose first cell isn't a recognised Y/N/B/C marker are left unselected."""
+    out = {}
+    for i, row in enumerate(grid.get("rows") or []):
+        val = str(row[0]).strip().lower() if row else ""
+        tag = _SEL_COL_MAP.get(val)
+        if tag:
+            out[str(i)] = tag
+    return out
+
+
 def _read_csv_raw(raw_bytes):
     """Read raw CSV bytes into a header-less all-string DataFrame (like an unparsed
     sheet). Tolerant of BOMs and ragged rows (pads short rows) so preamble-heavy
@@ -350,6 +371,7 @@ def upload_workbook(pid):
         sheet_iter = [(n, None) for n in xf.sheet_names]
 
     uploads = cdb.get_state(pid, "uploads", [])
+    sel_state = cdb.get_state(pid, "selections", {})
     added, summary = 0, []
 
     for sheet_name, pre_df in sheet_iter:
@@ -387,6 +409,12 @@ def upload_workbook(pid):
                         FileStorage(stream=bio, filename=f"{sheet_name}.xlsx"))
         cstore.save_parsed(pid, filekey, grid)
 
+        # Auto-fetch the pre-done selection from column A (Y/N/B/C) so it shows
+        # pre-filled in the Keyword Selection grid — the user just verifies + saves.
+        auto_sel = _col0_selections(grid)
+        if auto_sel:
+            sel_state[filekey] = auto_sel
+
         label = _label_for(source, sheet_name)
         uploads.append({
             "filekey": filekey, "source": source, "field": source,
@@ -395,17 +423,20 @@ def upload_workbook(pid):
             "rowcount": len(grid["rows"]), "cols": len(grid["columns"]),
             "keyword_col": grid["keyword_col"],
             "asin_cols": grid["asin_cols"], "has_grid": has_grid,
+            "selected": len(auto_sel),
         })
         summary.append({
             "sheet": sheet_name, "source": source, "label": label,
             "rows": len(grid["rows"]), "cols": len(grid["columns"]),
             "has_keywords": grid["keyword_col"] is not None,
             "has_asins": bool(grid["asin_cols"]),
+            "selected": len(auto_sel),
             "status": "ok",
         })
         added += 1
 
     cdb.save_state(pid, "uploads", uploads)
+    cdb.save_state(pid, "selections", sel_state)   # pre-filled from column A
     return jsonify({"success": True, "added": added, "summary": summary, "uploads": uploads})
 
 
