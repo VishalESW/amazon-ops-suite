@@ -383,10 +383,9 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
       <div id="buildSummary" class="grid gap-3 sm:grid-cols-3 mb-4"></div>
       <div class="flex flex-wrap items-center gap-3">
         <button onclick="doBuild()" id="buildBtn" class="rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Generate planning workbook</button>
-        <button onclick="doBulksheet()" id="bulkBtn" class="rounded-md border border-input bg-background px-4 py-2.5 text-sm font-semibold hover:bg-accent transition">Generate Amazon SP bulksheet</button>
         <span id="buildMsg" class="text-sm text-muted-foreground"></span>
       </div>
-      <p class="text-xs text-muted-foreground mt-2">Planning workbook = the full 20-tab analysis file. <strong>Amazon SP bulksheet</strong> = upload-ready Entity rows for Bulk Operations (Sponsored Products only — keyword/PT/auto; one ad group per campaign, no manual conversion). SB/SBV/SDI need creative assets and are excluded.</p>
+      <p class="text-xs text-muted-foreground mt-2">Planning workbook = the full 20-tab analysis file. Review/edit it, then upload it below to generate the upload-ready <strong>Amazon SP bulksheet</strong> (Sponsored Products only — keyword/PT/auto; one ad group per campaign). SB/SBV/SDI need creative assets and are excluded.</p>
 
       <div class="mt-4 pt-4 border-t border-border">
         <p class="text-sm font-medium mb-1">Edited workbook → bulksheet</p>
@@ -1182,21 +1181,6 @@ async function doBuild(){
     } else { toast(r.error||'Build failed','error'); }
   }catch(e){ toast('Network error: '+(e.message||e),'error'); }
   finally{ btn.disabled=false; btn.textContent='Generate planning workbook'; document.getElementById('buildMsg').textContent=''; }
-}
-
-async function doBulksheet(){
-  const btn=document.getElementById('bulkBtn'); btn.disabled=true; btn.textContent='Building…';
-  document.getElementById('buildMsg').textContent='Generating Amazon SP bulksheet…';
-  try{
-    const r=await fetch(`/campaign/projects/${PID}/bulksheet`,{method:'POST'}).then(r=>r.json());
-    if(r.success){
-      document.getElementById('buildDl').href=r.download;
-      document.getElementById('buildMeta').textContent=`Amazon SP bulksheet · ${r.campaigns} campaign(s) · upload directly in Bulk Operations`;
-      document.getElementById('buildResult').classList.remove('hidden');
-      toast('SP bulksheet generated','success');
-    } else { toast(r.error||'Bulksheet failed','error'); }
-  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
-  finally{ btn.disabled=false; btn.textContent='Generate Amazon SP bulksheet'; document.getElementById('buildMsg').textContent=''; }
 }
 
 async function doUploadEdited(input){
