@@ -60,25 +60,64 @@ def _le4(terms):
 
 
 def _negatives(cr, inp, skw_kws):
-    """Expand the planning negative LABELS (cols AC/AD/AE) into real negative rows.
-    AC -> negative phrase, AD -> negative exact, AE -> negative product targeting.
-    Returns list of (entity, field, value, match) tuples. Labels with no data source
-    (e.g. 'Misspellings KWs') are skipped."""
+    """Negative keyword/product rows for a campaign. Negative PHRASE + EXACT terms are
+    sourced from the Master Keyword List sheet:
+      - negativePhrase  = own-branded (AL/AM) + competitor searches (AQ) + Negate Brands (BB)
+      - negativeExact   = Negate Words (BA)
+      - negative product = own-brand ASINs (BD)
+    Gated by the planning negative LABELS in Campaign Naming (AC/AD/AE) so only the
+    campaigns marked for negatives receive them."""
     own_kw = _le4(_clean((getattr(inp, "own_branded_kws", None) or [])
                          + (getattr(inp, "own_branded_searches", None) or [])))
     comp_kw = _le4(_clean(getattr(inp, "competitor_searches", None) or []))
+    neg_brands = _le4(_clean(getattr(inp, "negate_brands", None) or []))
+    neg_words = _clean(getattr(inp, "negate_words", None) or [])
     out = []
     ac = str(cr.get("AC") or "")
     if "Own Branded KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in own_kw]
     if "Competitor KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in comp_kw]
-    if "SKW EX. Match Keywords" in str(cr.get("AD") or ""):
-        out += [("Negative Keyword", k, "negativeExact") for k in _clean(skw_kws)]
+    if ac.strip():   # any phrase-negative label -> also add Master List Negate Brands
+        out += [("Negative Keyword", k, "negativePhrase") for k in neg_brands]
+    if str(cr.get("AD") or "").strip():   # exact-negative label -> Master List Negate Words
+        out += [("Negative Keyword", k, "negativeExact") for k in neg_words]
     if "Own Branded ASINs" in str(cr.get("AE") or ""):
         out += [("Negative Product Targeting", a, "")
                 for a in (getattr(inp, "own_brand_asins", None) or [])]
-    return out
+    # de-dupe (entity, value, match)
+    return list(dict.fromkeys(out))
+
+
+def _split_broad(text):
+    """Broad KW List cell -> list of keyword lines (newline/comma separated)."""
+    if not text:
+        return []
+    parts = re.split(r"[\n,]+", str(text))
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _placement_pct(v):
+    """Campaign-Naming placement adjustment (fraction like 0.25/0.5/1.0 or a whole
+    percent) -> Amazon Percentage integer. Returns None for 0/blank."""
+    n = _num(v)
+    if n is None:
+        try:
+            n = float(str(v).replace("%", "").strip())
+        except (TypeError, ValueError):
+            return None
+    if not n:
+        return None
+    return round(n * 100) if abs(n) <= 10 else round(n)
+
+
+# Campaign-Naming placement column -> Amazon placement name.
+_PLACEMENTS = [("Q", "Placement Top"), ("R", "Placement Product Page"),
+               ("S", "Placement Rest Of Search")]
 
 
 def _name(cr):
@@ -127,8 +166,15 @@ def build_sp_rows(inp):
             "Start Date": today, "Targeting Type": "AUTO" if is_auto else "MANUAL",
             "State": "enabled", "Daily Budget": cr.get("K", 5) or 5,
             "Bidding Strategy": strategy})
-        # Ad Group
-        ag_bid = cr.get("Z") if isinstance(cr.get("Z"), (int, float)) and cr.get("Z") else DEFAULT_AG_BID
+        # Campaign placement bid adjustments (Top / Product Page / Rest of Search)
+        # from Campaign Naming Q/R/S -> Amazon "Bidding Adjustment" rows.
+        for col, pname in _PLACEMENTS:
+            p = _placement_pct(cr.get(col))
+            if p:
+                add(Entity="Bidding Adjustment", **{"Campaign ID": camp_id,
+                    "Bidding Strategy": strategy, "Placement": pname, "Percentage": p})
+        # Ad Group. Default bid = Starting Bid (AL, computed) if present, else Z, else default.
+        ag_bid = _num(cr.get("AL")) or _num(cr.get("Z")) or DEFAULT_AG_BID
         add(Entity="Ad Group", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
             "Ad Group Name": _ag_name(cr), "State": "enabled",
             "Ad Group Default Bid": ag_bid})
@@ -150,13 +196,26 @@ def build_sp_rows(inp):
             continue  # auto campaigns: Amazon creates the auto-targeting groups
         if e in ("SKW", "MKW"):
             match = _MATCH.get(f, "exact")
+            # Targeting keywords come from the Semantics "Broad KW List" (col O);
+            # fall back to the raw keyword(s) when the user left it blank.
             if e == "SKW":
-                kws = [(g, cr.get("Z"))]
-            else:  # MKW: every keyword under this root + match
-                kws = [(s["keyword"], None) for s in sem
-                       if (s.get("category") or "").strip() == g
-                       and (s.get("disp_kw_type") or "").upper() == "MKW"
-                       and orch.canon_match(s.get("disp_match")) == f]
+                srow = next((s for s in sem if s.get("keyword") == g
+                             and (s.get("disp_kw_type") or "").upper() == "SKW"), None)
+                texts = _split_broad(srow.get("broad_list")) if srow else []
+                if not texts:
+                    texts = [g]
+                kws = [(t, ag_bid) for t in dict.fromkeys(texts)]  # SKW: bid = starting bid
+            else:  # MKW: rows under this root + match
+                group = [s for s in sem
+                         if (s.get("category") or "").strip() == g
+                         and (s.get("disp_kw_type") or "").upper() == "MKW"
+                         and orch.canon_match(s.get("disp_match")) == f]
+                texts = []
+                for s in group:
+                    texts += _split_broad(s.get("broad_list"))
+                if not texts:
+                    texts = [s["keyword"] for s in group]
+                kws = [(t, None) for t in dict.fromkeys(texts)]
             for text, bid in kws:
                 add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
                     "State": "enabled", "Keyword Text": text, "Match Type": match,
@@ -239,13 +298,15 @@ def parse_planning_workbook(path):
         h = [str(c or "") for c in hdr]
         i_kw, i_root = _col_idx(h, "Keyword"), _col_idx(h, "Root KW")
         i_kv, i_mt = _col_idx(h, "KW Vol."), _col_idx(h, "Match Type")
+        i_broad = _col_idx(h, "Broad KW List")   # Semantics col O — targeting keywords
         start = sm.index(hdr) + 1 if hdr in sm else 3
         for r in sm[start:]:
             if not r or i_kw is None or i_kw >= len(r) or not r[i_kw]:
                 continue
             g = lambda i: (str(r[i]).strip() if i is not None and i < len(r) and r[i] else "")
             sem_rows.append({"keyword": g(i_kw), "category": g(i_root),
-                             "disp_kw_type": g(i_kv), "disp_match": g(i_mt)})
+                             "disp_kw_type": g(i_kv), "disp_match": g(i_mt),
+                             "broad_list": g(i_broad)})
 
     # --- PAT -> the four competitor-ASIN buckets (by ASIN Cat Type) -------------
     buckets = {b: [] for b in _PAT_TAG_BUCKET.values()}
@@ -270,7 +331,8 @@ def parse_planning_workbook(path):
     # AM own-branded searches, AQ competitor searches, BD own-brand ASINs.
     from openpyxl.utils import column_index_from_string
     neg = {"own_branded_kws": "AL", "own_branded_searches": "AM",
-           "competitor_searches": "AQ", "own_brand_asins": "BD"}
+           "competitor_searches": "AQ", "own_brand_asins": "BD",
+           "negate_words": "BA", "negate_brands": "BB"}   # ⛔️ negatives
     neg_lists = {k: [] for k in neg}
     if "Master Keyword List" in wb.sheetnames:
         mk = list(wb["Master Keyword List"].iter_rows(values_only=True))
