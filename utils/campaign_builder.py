@@ -33,18 +33,15 @@ DEFAULT_ASP = 24.95
 _ARTICLES = {"the", "a", "an"}
 
 
-def _short_product(title, brand):
-    """Short product label for campaign names: the first MEANINGFUL word of the
-    ASIN title — skipping leading articles (The/A/An) and non-alphabetic tokens
-    (e.g. '360°', pure numbers). Falls back to the brand. Avoids the old bug where
-    'The 360° Total Windshield…' collapsed to 'The'."""
-    for w in str(title or "").split():
-        if w.lower().strip(".,:;-—") in _ARTICLES:
-            continue
-        if not any(ch.isalpha() for ch in w):
-            continue
-        return w
-    return brand
+def _short_product(title, brand, n=5):
+    """Short product label for campaign names: the first `n` words (default 5) of
+    the ASIN title, after dropping a leading article (The/A/An). Falls back to the
+    brand. e.g. 'The 360° Total Windshield Cleaning KIT with car' -> '360° Total
+    Windshield Cleaning KIT'."""
+    words = str(title or "").split()
+    while words and words[0].lower().strip(".,:;-—") in _ARTICLES:
+        words.pop(0)
+    return " ".join(words[:n]) or brand
 
 # Editable grids: which fields the user may override + which are numeric.
 # Edits are saved per-row by index: {"<rowIndex>": {field: value, ...}}.
