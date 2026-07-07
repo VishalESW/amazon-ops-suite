@@ -198,24 +198,27 @@ def build_sp_rows(inp):
             match = _MATCH.get(f, "exact")
             # Targeting keywords come from the Semantics "Broad KW List" (col O);
             # fall back to the raw keyword(s) when the user left it blank.
+            # Each keyword's bid = its own Semantics "Starting Bid" (per-keyword CVR),
+            # falling back to the ad-group default only when that's blank. Avoids the
+            # flat ~1.17 that Campaign Naming's placeholder-CVR Starting Bid produced.
             if e == "SKW":
                 srow = next((s for s in sem if s.get("keyword") == g
                              and (s.get("disp_kw_type") or "").upper() == "SKW"), None)
-                texts = _split_broad(srow.get("broad_list")) if srow else []
-                if not texts:
-                    texts = [g]
-                kws = [(t, ag_bid) for t in dict.fromkeys(texts)]  # SKW: bid = starting bid
-            else:  # MKW: rows under this root + match
+                kbid = (srow.get("bid") if srow else None) or ag_bid
+                texts = (_split_broad(srow.get("broad_list")) if srow else []) or [g]
+                kws = [(t, kbid) for t in dict.fromkeys(texts)]
+            else:  # MKW: rows under this root + match — bid per source keyword
                 group = [s for s in sem
                          if (s.get("category") or "").strip() == g
                          and (s.get("disp_kw_type") or "").upper() == "MKW"
                          and orch.canon_match(s.get("disp_match")) == f]
-                texts = []
+                kws, seen = [], set()
                 for s in group:
-                    texts += _split_broad(s.get("broad_list"))
-                if not texts:
-                    texts = [s["keyword"] for s in group]
-                kws = [(t, None) for t in dict.fromkeys(texts)]
+                    kbid = s.get("bid") or ag_bid
+                    for t in (_split_broad(s.get("broad_list")) or [s["keyword"]]):
+                        if t and t not in seen:
+                            seen.add(t)
+                            kws.append((t, kbid))
             for text, bid in kws:
                 add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
                     "State": "enabled", "Keyword Text": text, "Match Type": match,
@@ -300,6 +303,7 @@ def parse_planning_workbook(path):
         i_kw, i_root = _col_idx(h, "Keyword"), _col_idx(h, "Root KW")
         i_kv, i_mt = _col_idx(h, "KW Vol."), _col_idx(h, "Match Type")
         i_broad = _col_idx(h, "Broad KW List")   # Semantics col O — targeting keywords
+        i_bid = _col_idx(h, "Starting Bid 1", "Starting Bid")  # per-keyword bid (col U)
         start = sm.index(hdr) + 1 if hdr in sm else 3
         for r in sm[start:]:
             if not r or i_kw is None or i_kw >= len(r) or not r[i_kw]:
@@ -307,7 +311,8 @@ def parse_planning_workbook(path):
             g = lambda i: (str(r[i]).strip() if i is not None and i < len(r) and r[i] else "")
             sem_rows.append({"keyword": g(i_kw), "category": g(i_root),
                              "disp_kw_type": g(i_kv), "disp_match": g(i_mt),
-                             "broad_list": g(i_broad)})
+                             "broad_list": g(i_broad),
+                             "bid": _num(r[i_bid]) if i_bid is not None and i_bid < len(r) else None})
 
     # --- PAT -> the four competitor-ASIN buckets (by ASIN Cat Type) -------------
     buckets = {b: [] for b in _PAT_TAG_BUCKET.values()}
