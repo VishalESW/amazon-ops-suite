@@ -30,6 +30,22 @@ DEFAULT_ACOS = 0.30
 DEFAULT_PLACEMENT = 0.25
 DEFAULT_ASP = 24.95
 
+_ARTICLES = {"the", "a", "an"}
+
+
+def _short_product(title, brand):
+    """Short product label for campaign names: the first MEANINGFUL word of the
+    ASIN title — skipping leading articles (The/A/An) and non-alphabetic tokens
+    (e.g. '360°', pure numbers). Falls back to the brand. Avoids the old bug where
+    'The 360° Total Windshield…' collapsed to 'The'."""
+    for w in str(title or "").split():
+        if w.lower().strip(".,:;-—") in _ARTICLES:
+            continue
+        if not any(ch.isalpha() for ch in w):
+            continue
+        return w
+    return brand
+
 # Editable grids: which fields the user may override + which are numeric.
 # Edits are saved per-row by index: {"<rowIndex>": {field: value, ...}}.
 SEM_EDITABLE = ["keyword", "source", "ctr",
@@ -132,7 +148,7 @@ def assemble(pid):
     # ASIN title, e.g. "Lounge-IT" from "Lounge-IT Car Phone Holder, ..."), not the
     # full title — that's what the client's campaign names use.
     _full_product = inp.products[0]["name"] if inp.products else brand
-    default_product = (_full_product.split()[0] if _full_product else brand) or brand
+    default_product = _short_product(_full_product, brand)
     default_asin = inp.products[0]["asin"] if inp.products else ""
     default_sku = inp.products[0].get("sku", "") if inp.products else ""
     default_asp = next((pr.get("asp") for pr in chosen if pr.get("asp")), DEFAULT_ASP) or DEFAULT_ASP
