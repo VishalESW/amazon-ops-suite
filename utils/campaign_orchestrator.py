@@ -689,6 +689,11 @@ def _campaign_rows(sem_rows, ctx, asp, acos, placement):
             g, goal = s["keyword"], "Rank"
             zbid = _skw_bid(s.get("cvr"), asp, acos, placement)
         row = _aux_cols("SPM", ktype, match, ctx)
+        # Campaign-name product (B) = this keyword's Semantics "Product Name" cell,
+        # so the name matches what the user set there (falls back to ctx default).
+        prod = (s.get("product") or "").strip() or ctx["product"]
+        row["B"] = prod
+        row["U"] = prod + ctx["portfolio_suffix"]
         row.update({"E": ktype, "F": match, "G": g, "H": goal, "Z": zbid,
                     "AH": placement, "AI": asp, "AJ": acos, "AK": 0.14})
         rows.append(row)

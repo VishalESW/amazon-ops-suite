@@ -414,6 +414,14 @@ def assemble(pid):
     inp.h10_asins = (state.get("seed_h10") or {}).get("items", [])
     inp.brand_asins = inp.own_brand_asins[:1]
 
+    # Effective product label for ALL campaign names = the Semantics "Product Name"
+    # the user set (most common non-empty across rows), so PAT/display campaigns match
+    # the keyword campaigns and the Semantics sheet. Falls back to the short default.
+    from collections import Counter as _Counter
+    _prods = [(s.get("product") or "").strip() for s in sem_rows if (s.get("product") or "").strip()]
+    if _prods:
+        camp_ctx["product"] = _Counter(_prods).most_common(1)[0][0]
+
     # ---- Campaigns: keyword campaigns + PAT (PT) campaigns -----------------
     inp.campaign_rows = orch._campaign_rows(sem_rows, camp_ctx,
                                             default_asp, DEFAULT_ACOS, DEFAULT_PLACEMENT)
