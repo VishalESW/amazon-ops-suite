@@ -883,10 +883,6 @@ def get_pat_all_asins(pid):
         title_col_map = _pair_title_cols(columns, asin_cols)
         col_lows = [c.lower() for c in columns]
 
-        # Conversion-rate column for this file (first header matching a CVR token).
-        cvr_col = next((i for i, cl in enumerate(col_lows)
-                        if any(tok in cl for tok in CVR_TOKENS)), None)
-
         # Only surface competitor ASINs from the keyword rows the user SELECTED
         # (tagged Y or Competitor); if this file has no selection yet, use all rows.
         file_sels = selections.get(u["filekey"], {})
@@ -894,9 +890,6 @@ def get_pat_all_asins(pid):
         for i, row in enumerate(grid["rows"]):
             if y_or_comp and i not in y_or_comp:
                 continue
-            row_cvr = ""
-            if cvr_col is not None and cvr_col < len(row):
-                row_cvr = str(row[cvr_col] or "").strip()
             for ci in asin_cols:
                 if ci >= len(row):
                     continue
@@ -913,14 +906,18 @@ def get_pat_all_asins(pid):
                         title = str(row[ti] or "").strip()
                         if title:
                             asin_to_title[asin] = title
-                # Fill conversion rate on the first row that has one for this ASIN
-                if not asin_to_cvr.get(asin) and row_cvr and row_cvr.lower() not in ("nan", "none", "0", "0.0"):
-                    asin_to_cvr[asin] = row_cvr
+
+        # Per-ASIN CVR (fraction) — POE 'Search Conversion Rate' / BA paired
+        # 'Conversion Share'. Same extractor the workbook builder uses, so the CVR
+        # shown here matches the generated file exactly.
+        for a, v in orch.extract_asin_cvr(columns, grid["rows"], asin_cols,
+                                          y_or_comp or None).items():
+            asin_to_cvr.setdefault(a, v)
 
     def _row(asin, title):
         m = asin_pat.get(asin) or {}
-        # STR lookup wins (workbook-faithful); else the source-file conversion rate.
-        raw_cvr = cvr_by_asin.get(asin.lower(), "") or asin_to_cvr.get(asin, "")
+        # Per-ASIN source CVR (POE/BA) wins; STR only as a fallback.
+        raw_cvr = asin_to_cvr.get(asin) or cvr_by_asin.get(asin.lower(), "")
         return {
             "asin": asin,
             # Priority: user-saved name > AdLabs product name > file-sourced title
@@ -931,8 +928,9 @@ def get_pat_all_asins(pid):
             "product": m.get("product", ""),
             "asp": m.get("asp", ""),
             "acos": m.get("acos", ""),
-            # Conversion rate (col H, raw lookup) + calc (col P, normalized fraction)
-            "cvr": raw_cvr,
+            # Conversion rate shown as a percent to match the workbook's H display
+            # (both are the same fraction underneath); cvr_calc = the fraction (col P).
+            "cvr": (f"{round(raw_cvr * 100, 2)}%" if isinstance(raw_cvr, (int, float)) else raw_cvr),
             "cvr_calc": _cvr_calc(raw_cvr),
             # Own product this competitor ASIN is targeted for (dropdown selection)
             "product_asin": m.get("product_asin", ""),

@@ -363,6 +363,55 @@ def extract_cvr_by_kw(df, source):
     return out
 
 
+def extract_asin_cvr(columns, rows, asin_cols, selected=None):
+    """Per-ASIN conversion rate as a FRACTION, by the client's rule:
+    - Brand Analytics / BA TST: the paired 'Top Clicked Product #X: Conversion
+      Share' column (same prefix as that ASIN column).
+    - POE: the row's 'Search Conversion Rate (Past 360 days)' column.
+    First non-empty value per ASIN wins; percent values (>1) become fractions.
+    `selected` (row indices) limits extraction to the chosen keyword rows.
+    Returns {ASIN: fraction}. Used by BOTH the PAT grid route and the workbook
+    builder so the displayed CVR and the generated-file CVR are identical."""
+    lows = [str(c).lower() for c in columns]
+    # ASIN column -> its paired "conversion share" column (BA / BA TST).
+    share_map = {}
+    for ci in asin_cols:
+        if ci < len(lows) and "asin" in lows[ci]:
+            prefix = lows[ci].rsplit("asin", 1)[0]
+            for si, sl in enumerate(lows):
+                if si != ci and prefix and sl.startswith(prefix) and "conversion share" in sl:
+                    share_map[ci] = si
+                    break
+    # Row-level CVR column (POE "Search Conversion Rate (Past 360 days)").
+    row_cvr_col = next((i for i, cl in enumerate(lows) if "search conversion rate" in cl), None)
+    if row_cvr_col is None:
+        row_cvr_col = next((i for i, cl in enumerate(lows)
+                            if "conversion rate" in cl and "share" not in cl), None)
+    out = {}
+    for i, row in enumerate(rows):
+        if selected is not None and i not in selected:
+            continue
+        for ci in asin_cols:
+            if ci >= len(row):
+                continue
+            m = _ASIN_RE.search(str(row[ci] or "").strip())
+            if not m:
+                continue
+            a = m.group(0).upper()
+            if a in out:
+                continue
+            val = ""
+            si = share_map.get(ci)
+            if si is not None and si < len(row):
+                val = str(row[si] or "").strip()
+            if not val and row_cvr_col is not None and row_cvr_col < len(row):
+                val = str(row[row_cvr_col] or "").strip()
+            n = clean_num(val)
+            if n:
+                out[a] = round(n / 100, 4) if n > 1 else round(n, 4)
+    return out
+
+
 def extract_str_metrics_by_kw(df):
     """Return {keyword_lower: {orders, cpc, acos}} from a Search Term Report.
 
