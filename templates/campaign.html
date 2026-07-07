@@ -74,18 +74,24 @@
     {% if projects %}
     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {% for p in projects %}
-      <a href="/campaign/projects/{{ p.id }}" class="cp-card p-4 hover:shadow-lift transition block">
-        <div class="flex items-start justify-between gap-2">
-          <h3 class="font-semibold leading-tight">{{ p.name }}</h3>
-          {% set st = p.status %}
-          <span class="cp-badge"
-            style="{% if st=='awaiting_approval' %}background:hsl(var(--warning)/.12);color:hsl(var(--warning)){% elif st=='approved' %}background:hsl(var(--success)/.12);color:hsl(var(--success)){% elif st=='completed' %}background:hsl(var(--primary)/.1);color:hsl(var(--foreground)){% else %}background:hsl(var(--muted));color:hsl(var(--muted-foreground)){% endif %}">
-            {{ st.replace('_',' ') }}
-          </span>
-        </div>
-        <p class="mt-1 text-sm text-muted-foreground truncate">{{ p.profile_name or '—' }}</p>
-        <p class="mt-3 text-xs text-muted-foreground">Step: <span class="font-medium text-foreground">{{ p.current_step or 'profile' }}</span></p>
-      </a>
+      <div class="cp-card p-4 hover:shadow-lift transition relative" data-card="{{ p.id }}">
+        <a href="/campaign/projects/{{ p.id }}" class="block pr-8">
+          <div class="flex items-start justify-between gap-2">
+            <h3 class="font-semibold leading-tight">{{ p.name }}</h3>
+            {% set st = p.status %}
+            <span class="cp-badge"
+              style="{% if st=='awaiting_approval' %}background:hsl(var(--warning)/.12);color:hsl(var(--warning)){% elif st=='approved' %}background:hsl(var(--success)/.12);color:hsl(var(--success)){% elif st=='completed' %}background:hsl(var(--primary)/.1);color:hsl(var(--foreground)){% else %}background:hsl(var(--muted));color:hsl(var(--muted-foreground)){% endif %}">
+              {{ st.replace('_',' ') }}
+            </span>
+          </div>
+          <p class="mt-1 text-sm text-muted-foreground truncate">{{ p.profile_name or '—' }}</p>
+          <p class="mt-3 text-xs text-muted-foreground">Step: <span class="font-medium text-foreground">{{ p.current_step or 'profile' }}</span></p>
+        </a>
+        <button onclick="delProject('{{ p.id }}', this)" title="Delete project"
+          class="absolute bottom-2 right-2 grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:text-danger hover:bg-[hsl(var(--danger)/.1)] transition" aria-label="Delete project">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 5v6m4-6v6"/></svg>
+        </button>
+      </div>
       {% endfor %}
     </div>
     {% else %}
@@ -135,6 +141,23 @@
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 let PROFILES=[], SEL=null;
+
+async function delProject(pid, btn){
+  if(!confirm('Delete this project? All its data — uploads, selections, edits — is wiped permanently and cannot be undone.')) return;
+  btn.disabled=true;
+  try{
+    const res=await fetch(`/campaign/projects/${pid}/delete`,{method:'POST'});
+    let r=null; try{ r=await res.json(); }catch(_){ r=null; }
+    if(r&&r.success){
+      const card=document.querySelector(`[data-card="${pid}"]`);
+      if(card) card.remove();
+      toast('Project deleted','success');
+    } else {
+      toast((r&&r.error) || (res.status===401?'Session expired — refresh & sign in.':`Delete failed (HTTP ${res.status})`),'error');
+      btn.disabled=false;
+    }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); btn.disabled=false; }
+}
 function openNew(){ document.getElementById('newBg').classList.remove('hidden');
   document.getElementById('newModal').classList.remove('hidden'); if(!PROFILES.length) loadProfiles(); }
 function closeNew(){ document.getElementById('newBg').classList.add('hidden');
