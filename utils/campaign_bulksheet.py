@@ -265,8 +265,24 @@ def parse_planning_workbook(path):
             if _ASIN_ONLY.match(asin) and cat in _PAT_TAG_BUCKET:
                 buckets[_PAT_TAG_BUCKET[cat]].append(asin)
 
+    # --- Master Keyword List -> negative-keyword source lists ------------------
+    # Engine writes these columns (data from row 3): AL own-branded KWs,
+    # AM own-branded searches, AQ competitor searches, BD own-brand ASINs.
+    from openpyxl.utils import column_index_from_string
+    neg = {"own_branded_kws": "AL", "own_branded_searches": "AM",
+           "competitor_searches": "AQ", "own_brand_asins": "BD"}
+    neg_lists = {k: [] for k in neg}
+    if "Master Keyword List" in wb.sheetnames:
+        mk = list(wb["Master Keyword List"].iter_rows(values_only=True))
+        idx = {k: column_index_from_string(v) - 1 for k, v in neg.items()}
+        for r in mk[2:]:                                  # data starts row 3
+            for k, ci in idx.items():
+                if ci < len(r) and r[ci] not in (None, ""):
+                    neg_lists[k].append(str(r[ci]).strip())
+
     return SimpleNamespace(products=[{"asin": own_asin, "sku": own_sku}],
-                           semantics_rows=sem_rows, campaign_rows=campaign_rows, **buckets)
+                           semantics_rows=sem_rows, campaign_rows=campaign_rows,
+                           **buckets, **neg_lists)
 
 
 def build_sp_bulksheet_from_workbook(path, out_path):
