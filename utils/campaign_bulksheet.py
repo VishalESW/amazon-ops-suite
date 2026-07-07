@@ -14,6 +14,7 @@ via bulk-create and are intentionally excluded. Negatives are omitted for now.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 
 import openpyxl
 
@@ -63,8 +64,9 @@ def _negatives(cr, inp, skw_kws):
     AC -> negative phrase, AD -> negative exact, AE -> negative product targeting.
     Returns list of (entity, field, value, match) tuples. Labels with no data source
     (e.g. 'Misspellings KWs') are skipped."""
-    own_kw = _le4(_clean((inp.own_branded_kws or []) + (inp.own_branded_searches or [])))
-    comp_kw = _le4(_clean(inp.competitor_searches or []))
+    own_kw = _le4(_clean((getattr(inp, "own_branded_kws", None) or [])
+                         + (getattr(inp, "own_branded_searches", None) or [])))
+    comp_kw = _le4(_clean(getattr(inp, "competitor_searches", None) or []))
     out = []
     ac = str(cr.get("AC") or "")
     if "Own Branded KWs" in ac:
@@ -74,7 +76,8 @@ def _negatives(cr, inp, skw_kws):
     if "SKW EX. Match Keywords" in str(cr.get("AD") or ""):
         out += [("Negative Keyword", k, "negativeExact") for k in _clean(skw_kws)]
     if "Own Branded ASINs" in str(cr.get("AE") or ""):
-        out += [("Negative Product Targeting", a, "") for a in (inp.own_brand_asins or [])]
+        out += [("Negative Product Targeting", a, "")
+                for a in (getattr(inp, "own_brand_asins", None) or [])]
     return out
 
 
@@ -184,3 +187,88 @@ def build_sp_bulksheet(inp, out_path):
     wb.save(out_path)
     n_camp = sum(1 for r in rows if r["Entity"] == "Campaign")
     return out_path, n_camp
+
+
+# --------------------------------------------------------------------------- #
+# Build from a user-edited planning workbook (Verify & Build "upload edited")  #
+# --------------------------------------------------------------------------- #
+_ASIN_ONLY = re.compile(r"^B0[A-Z0-9]{8}$", re.I)
+_PAT_TAG_BUCKET = {"main": "main_competitor_asins", "low rated": "lower_rated_asins",
+                   "high priced": "higher_priced_asins", "bestselling": "bestselling_asins"}
+
+
+def _col_idx(header, *names):
+    for i, h in enumerate(header):
+        hl = str(h or "").strip().lower()
+        if hl in [n.lower() for n in names]:
+            return i
+    return None
+
+
+def parse_planning_workbook(path):
+    """Re-read the app's planning workbook (possibly hand-edited) into the object
+    build_sp_rows expects: campaign_rows (letter-keyed dicts from Campaign Naming),
+    semantics_rows (for MKW keyword expansion), the four PAT ASIN buckets, and the
+    own ASIN/SKU. Lets the user tweak the workbook, then regenerate the bulksheet."""
+    from openpyxl.utils import get_column_letter
+    from types import SimpleNamespace
+    wb = openpyxl.load_workbook(path, data_only=True)
+
+    # --- Campaign Naming -> campaign_rows (keyed by column letter, A,B,C…) ------
+    campaign_rows, own_asin, own_sku = [], "", ""
+    cn = wb["Campaign Naming, Bids & Targets"]
+    for r in cn.iter_rows(min_row=2, values_only=True):
+        if not any(c not in (None, "") for c in r):
+            continue
+        cr = {get_column_letter(i + 1): ("" if v is None else v) for i, v in enumerate(r)}
+        if str(cr.get("C", "")).strip():          # a real campaign row (has a type)
+            campaign_rows.append(cr)
+            if not own_asin:
+                aa = str(cr.get("AA", "") or "").strip()   # ASIN/SKU column
+                if "/" in aa:
+                    own_asin, own_sku = (aa.split("/", 1) + [""])[:2]
+                elif _ASIN_ONLY.match(aa):
+                    own_asin = aa
+
+    # --- Semantics -> keyword rows (Keyword / Root KW / KW Vol. / Match Type) ----
+    sem_rows = []
+    if "Semantics" in wb.sheetnames:
+        sm = list(wb["Semantics"].iter_rows(values_only=True))
+        hdr = next((r for r in sm[:6] if r and any("keyword" == str(c).strip().lower()
+                    for c in r)), sm[2] if len(sm) > 2 else [])
+        h = [str(c or "") for c in hdr]
+        i_kw, i_root = _col_idx(h, "Keyword"), _col_idx(h, "Root KW")
+        i_kv, i_mt = _col_idx(h, "KW Vol."), _col_idx(h, "Match Type")
+        start = sm.index(hdr) + 1 if hdr in sm else 3
+        for r in sm[start:]:
+            if not r or i_kw is None or i_kw >= len(r) or not r[i_kw]:
+                continue
+            g = lambda i: (str(r[i]).strip() if i is not None and i < len(r) and r[i] else "")
+            sem_rows.append({"keyword": g(i_kw), "category": g(i_root),
+                             "disp_kw_type": g(i_kv), "disp_match": g(i_mt)})
+
+    # --- PAT -> the four competitor-ASIN buckets (by ASIN Cat Type) -------------
+    buckets = {b: [] for b in _PAT_TAG_BUCKET.values()}
+    if "PAT" in wb.sheetnames:
+        pt = list(wb["PAT"].iter_rows(values_only=True))
+        phdr = next((r for r in pt[:4] if r and any("cat type" in str(c).strip().lower()
+                     for c in r)), pt[1] if len(pt) > 1 else [])
+        ph = [str(c or "") for c in phdr]
+        i_asin = _col_idx(ph, "Search Term") or 1
+        i_cat = _col_idx(ph, "ASIN Cat Type")
+        pstart = pt.index(phdr) + 1 if phdr in pt else 2
+        for r in pt[pstart:]:
+            if not r or i_asin >= len(r):
+                continue
+            asin = str(r[i_asin] or "").strip()
+            cat = str(r[i_cat] or "").strip().lower() if i_cat is not None and i_cat < len(r) else ""
+            if _ASIN_ONLY.match(asin) and cat in _PAT_TAG_BUCKET:
+                buckets[_PAT_TAG_BUCKET[cat]].append(asin)
+
+    return SimpleNamespace(products=[{"asin": own_asin, "sku": own_sku}],
+                           semantics_rows=sem_rows, campaign_rows=campaign_rows, **buckets)
+
+
+def build_sp_bulksheet_from_workbook(path, out_path):
+    """Parse an edited planning workbook and write the Amazon SP bulksheet from it."""
+    return build_sp_bulksheet(parse_planning_workbook(path), out_path)

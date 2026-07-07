@@ -387,6 +387,17 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         <span id="buildMsg" class="text-sm text-muted-foreground"></span>
       </div>
       <p class="text-xs text-muted-foreground mt-2">Planning workbook = the full 20-tab analysis file. <strong>Amazon SP bulksheet</strong> = upload-ready Entity rows for Bulk Operations (Sponsored Products only — keyword/PT/auto; one ad group per campaign, no manual conversion). SB/SBV/SDI need creative assets and are excluded.</p>
+
+      <div class="mt-4 pt-4 border-t border-border">
+        <p class="text-sm font-medium mb-1">Edited workbook → bulksheet</p>
+        <p class="text-xs text-muted-foreground mb-3">Made manual changes in the generated planning workbook? Upload it here, then regenerate the Amazon SP bulksheet from your edits.</p>
+        <div class="flex flex-wrap items-center gap-3">
+          <button onclick="document.getElementById('editedWbFile').click()" id="uploadEditedBtn" class="rounded-md border border-input bg-background px-4 py-2.5 text-sm font-semibold hover:bg-accent transition">Upload edited workbook</button>
+          <button onclick="doBulksheetFromEdited()" id="bulkEditedBtn" disabled class="rounded-md border border-input bg-background px-4 py-2.5 text-sm font-semibold hover:bg-accent transition disabled:opacity-40 disabled:pointer-events-none">Generate bulksheet from uploaded</button>
+          <span id="editedMsg" class="text-sm text-muted-foreground"></span>
+          <input type="file" id="editedWbFile" accept=".xlsx,.xls" class="hidden" onchange="doUploadEdited(this)">
+        </div>
+      </div>
       <div id="buildResult" class="hidden mt-5 rounded-lg border border-success/40 p-4" style="background:hsl(var(--success)/.08)">
         <p class="font-medium">Workbook ready</p>
         <p id="buildMeta" class="mt-1 text-xs text-muted-foreground"></p>
@@ -1186,6 +1197,37 @@ async function doBulksheet(){
     } else { toast(r.error||'Bulksheet failed','error'); }
   }catch(e){ toast('Network error: '+(e.message||e),'error'); }
   finally{ btn.disabled=false; btn.textContent='Generate Amazon SP bulksheet'; document.getElementById('buildMsg').textContent=''; }
+}
+
+async function doUploadEdited(input){
+  const file=input.files[0]; if(!file) return;
+  const btn=document.getElementById('uploadEditedBtn'); btn.disabled=true; btn.textContent='Uploading…';
+  const msg=document.getElementById('editedMsg'); msg.textContent=`Uploading ${file.name}…`;
+  const fd=new FormData(); fd.append('workbook', file);
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/upload-edited`,{method:'POST',body:fd}).then(r=>r.json());
+    if(r.success){
+      msg.textContent=`Uploaded: ${r.filename}`;
+      document.getElementById('bulkEditedBtn').disabled=false;
+      toast('Edited workbook uploaded','success');
+    } else { msg.textContent=''; toast(r.error||'Upload failed','error'); }
+  }catch(e){ msg.textContent=''; toast('Network error: '+(e.message||e),'error'); }
+  finally{ btn.disabled=false; btn.textContent='Upload edited workbook'; input.value=''; }
+}
+
+async function doBulksheetFromEdited(){
+  const btn=document.getElementById('bulkEditedBtn'); btn.disabled=true; btn.textContent='Building…';
+  document.getElementById('editedMsg').textContent='Generating bulksheet from edited workbook…';
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/bulksheet-from-edited`,{method:'POST'}).then(r=>r.json());
+    if(r.success){
+      document.getElementById('buildDl').href=r.download;
+      document.getElementById('buildMeta').textContent=`Amazon SP bulksheet (from edited workbook) · ${r.campaigns} campaign(s)`;
+      document.getElementById('buildResult').classList.remove('hidden');
+      toast('SP bulksheet generated from edits','success');
+    } else { toast(r.error||'Bulksheet failed','error'); }
+  }catch(e){ toast('Network error: '+(e.message||e),'error'); }
+  finally{ btn.disabled=false; btn.textContent='Generate bulksheet from uploaded'; document.getElementById('editedMsg').textContent=''; }
 }
 
 async function advanceTo(to){

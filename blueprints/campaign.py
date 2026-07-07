@@ -1124,6 +1124,56 @@ def build_bulksheet(pid):
                     "download": url_for("download_file", filename=filename)})
 
 
+def _edited_wb_path(pid):
+    return os.path.join(cstore.project_dir(pid), "edited_workbook.xlsx")
+
+
+@bp.route("/projects/<pid>/upload-edited", methods=["POST"])
+def upload_edited_workbook(pid):
+    """Store a user-edited copy of the app's planning workbook so the SP bulksheet
+    can be regenerated from the manual edits."""
+    if not cdb.get_project(pid):
+        abort(404)
+    fs = request.files.get("workbook")
+    if not fs or not (fs.filename or "").lower().endswith((".xlsx", ".xls")):
+        return jsonify({"success": False, "error": "Upload the .xlsx planning workbook"}), 400
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(fs.read()), read_only=True)
+        if "Campaign Naming, Bids & Targets" not in wb.sheetnames:
+            return jsonify({"success": False, "error":
+                            "Not a planning workbook — missing the 'Campaign Naming, Bids & Targets' sheet"}), 400
+        wb.close()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"success": False, "error": f"Cannot read workbook: {e}"}), 400
+    fs.stream.seek(0)
+    fs.save(_edited_wb_path(pid))
+    return jsonify({"success": True, "filename": fs.filename})
+
+
+@bp.route("/projects/<pid>/bulksheet-from-edited", methods=["POST"])
+def build_bulksheet_from_edited(pid):
+    """Generate the Amazon SP bulksheet from the user's uploaded edited workbook."""
+    p = cdb.get_project(pid)
+    if not p:
+        abort(404)
+    path = _edited_wb_path(pid)
+    if not os.path.exists(path):
+        return jsonify({"success": False, "error": "Upload an edited workbook first"}), 400
+    from utils import campaign_bulksheet as bs
+    import time as _t
+    safe = "".join(ch if ch.isalnum() else "_" for ch in (p.get("name") or "Campaign")).strip("_") or "Campaign"
+    filename = f"SP_Bulksheet_Edited_{safe}_{_t.strftime('%Y%m%d-%H%M%S')}.xlsx"
+    out_path = os.path.join(cfg.OUTPUT_FOLDER, filename)
+    try:
+        _, n_camp = bs.build_sp_bulksheet_from_workbook(path, out_path)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "filename": filename, "campaigns": n_camp,
+                    "download": url_for("download_file", filename=filename)})
+
+
 # -------------------------------------------------------------- approvals ----
 @bp.route("/projects/<pid>/approve", methods=["POST"])
 def approve(pid):
