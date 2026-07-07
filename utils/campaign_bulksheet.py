@@ -219,7 +219,8 @@ def build_sp_rows(inp):
             for text, bid in kws:
                 add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
                     "State": "enabled", "Keyword Text": text, "Match Type": match,
-                    "Bid": bid if isinstance(bid, (int, float)) and bid else ""})
+                    # explicit bid on every keyword: its own, else the ad-group bid.
+                    "Bid": bid if isinstance(bid, (int, float)) and bid else ag_bid})
         elif e in ("PT", "STPP"):
             # Product targeting expressions. STPP (brand defence) targets the own
             # ASIN; PT targets the competitor ASINs of the category (G).
@@ -229,7 +230,7 @@ def build_sp_rows(inp):
                 asins = list(getattr(inp, _PAT_BUCKET.get(g, ""), []) or [])
             for asin in asins:
                 add(Entity="Product Targeting", **{"Campaign ID": camp_id,
-                    "Ad Group ID": ag_id, "State": "enabled",
+                    "Ad Group ID": ag_id, "State": "enabled", "Bid": ag_bid,
                     "Product Targeting Expression": f'asin="{asin}"'})
     return rows
 
