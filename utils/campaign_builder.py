@@ -349,6 +349,22 @@ def assemble(pid):
     poe_cvrs = [n for n in (orch.clean_num(v) for v in poe_cvr_by_kw.values()) if n]
     pat_cvr = round(sum(poe_cvrs) / len(poe_cvrs), 4) if poe_cvrs else ""
 
+    # Per-ASIN CVR (fraction) from the source files — POE "Search Conversion Rate"
+    # / BA "Top Clicked Product #X: Conversion Share" — restricted to the selected
+    # keyword rows. SAME source the PAT grid shows, so displayed == generated.
+    sel_map = state.get("selections") or {}
+    asin_cvr = {}
+    for u in uploads:
+        if u.get("source") not in ("poe", "ba", "batst"):
+            continue
+        g = cstore.load_parsed(pid, u["filekey"])
+        if not g or not g.get("asin_cols"):
+            continue
+        fsel = sel_map.get(u["filekey"], {})
+        yc = {int(ri) for ri, t in fsel.items() if t in ("Y", "Competitor")} or None
+        for a, v in orch.extract_asin_cvr(g["columns"], g["rows"], g["asin_cols"], yc).items():
+            asin_cvr.setdefault(a, v)
+
     pat_targets, pat_types = [], []
     for asin, tag in asin_tags.items():
         if tag not in PAT_BUCKET:
@@ -368,7 +384,8 @@ def assemble(pid):
             "product": prod,
             "asp": _num(m.get("asp"), default_asp),
             "acos": _num(m.get("acos"), DEFAULT_ACOS),
-            "cvr": pat_cvr,
+            # Per-ASIN source CVR; flat POE average only as a last-resort fallback.
+            "cvr": asin_cvr.get(asin, pat_cvr),
         })
     _apply_grid_edits(pat_targets, state.get("pat_edits") or {}, PAT_NUMERIC)
     inp.pat_targets = pat_targets
