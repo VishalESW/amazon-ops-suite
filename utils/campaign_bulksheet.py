@@ -74,13 +74,16 @@ def _negatives(cr, inp, skw_kws):
     neg_words = _clean(getattr(inp, "negate_words", None) or [])
     out = []
     ac = str(cr.get("AC") or "")
+    # A literal "None" label means NO negatives — don't treat it as a real label.
+    has_phrase = ("Own Branded KWs" in ac) or ("Competitor KWs" in ac)
+    has_exact = "SKW EX. Match Keywords" in str(cr.get("AD") or "")
     if "Own Branded KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in own_kw]
     if "Competitor KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in comp_kw]
-    if ac.strip():   # any phrase-negative label -> also add Master List Negate Brands
+    if has_phrase:   # a real phrase-negative label -> also add Master List Negate Brands
         out += [("Negative Keyword", k, "negativePhrase") for k in neg_brands]
-    if str(cr.get("AD") or "").strip():   # exact-negative label -> Master List Negate Words
+    if has_exact:    # exact-negative label -> Master List Negate Words
         out += [("Negative Keyword", k, "negativeExact") for k in neg_words]
     if "Own Branded ASINs" in str(cr.get("AE") or ""):
         out += [("Negative Product Targeting", a, "")
