@@ -224,14 +224,19 @@ def build_sp_rows(inp):
                     "State": "enabled", "Keyword Text": text, "Match Type": match,
                     # explicit bid on every keyword: its own, else the ad-group bid.
                     "Bid": bid if isinstance(bid, (int, float)) and bid else ag_bid})
-        elif e in ("PT", "STPP"):
-            # Product targeting expressions. STPP (brand defence) targets the own
-            # ASIN; PT targets the competitor ASINs of the category (G).
-            if e == "STPP":
-                asins = [own_asin] if own_asin else []
-            else:
-                asins = list(getattr(inp, _PAT_BUCKET.get(g, ""), []) or [])
-            for asin in asins:
+        elif e == "STPP":
+            # Brand defence: target the OWN-BRANDED keywords (from Master KW List),
+            # exact match — so competitors can't win the brand's own terms.
+            match = _MATCH.get(f, "exact")
+            own_kws = _clean((getattr(inp, "own_branded_kws", None) or [])
+                             + (getattr(inp, "own_branded_searches", None) or []))
+            for text in own_kws:
+                add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                    "State": "enabled", "Keyword Text": text, "Match Type": match,
+                    "Bid": ag_bid})
+        elif e == "PT":
+            # PT targets the competitor ASINs of the category (G) via product targeting.
+            for asin in (getattr(inp, _PAT_BUCKET.get(g, ""), []) or []):
                 add(Entity="Product Targeting", **{"Campaign ID": camp_id,
                     "Ad Group ID": ag_id, "State": "enabled", "Bid": ag_bid,
                     "Product Targeting Expression": f'asin="{asin}"'})
