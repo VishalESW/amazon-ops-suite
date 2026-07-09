@@ -95,16 +95,19 @@ def _negatives(cr, inp, skw_kws):
     neg_words = _clean(getattr(inp, "negate_words", None) or [])
     out = []
     ac = str(cr.get("AC") or "")
+    # SPA (auto): only OUR brand name + OUR ASIN as negatives — no competitor keywords,
+    # no competitor Negate Brands, no exact Negate Words.
+    is_spa = str(cr.get("C") or "").strip() == "SPA"
     # A literal "None" label means NO negatives — don't treat it as a real label.
     has_phrase = ("Own Branded KWs" in ac) or ("Competitor KWs" in ac)
     has_exact = "SKW EX. Match Keywords" in str(cr.get("AD") or "")
     if "Own Branded KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in own_kw]
-    if "Competitor KWs" in ac:
+    if not is_spa and "Competitor KWs" in ac:
         out += [("Negative Keyword", k, "negativePhrase") for k in comp_kw]
-    if has_phrase:   # a real phrase-negative label -> also add Master List Negate Brands
+    if has_phrase and not is_spa:   # phrase-negative label -> add Master List Negate Brands
         out += [("Negative Keyword", k, "negativePhrase") for k in neg_brands]
-    if has_exact:    # exact-negative label -> Master List Negate Words
+    if has_exact and not is_spa:    # exact-negative label -> Master List Negate Words
         out += [("Negative Keyword", k, "negativeExact") for k in neg_words]
     if "Own Branded ASINs" in str(cr.get("AE") or ""):
         out += [("Negative Product Targeting", a, "")
@@ -116,6 +119,12 @@ def _negatives(cr, inp, skw_kws):
         out += [("Negative Keyword", k, "negativeExact") for k in _clean(skw_kws)]
     # de-dupe (entity, value, match)
     return list(dict.fromkeys(out))
+
+
+def _asin_expr(asin, f):
+    """Product-targeting expression by match: Exp. -> asin-expanded="X" (expanded),
+    Ex. (and anything else) -> asin="X" (exact)."""
+    return f'asin-expanded="{asin}"' if str(f).strip() == "Exp." else f'asin="{asin}"'
 
 
 def _split_broad(text):
@@ -253,22 +262,18 @@ def build_sp_rows(inp):
                     "State": "enabled", "Keyword Text": text, "Match Type": match,
                     # explicit bid on every keyword: its own, else the ad-group bid.
                     "Bid": bid if isinstance(bid, (int, float)) and bid else ag_bid})
-        elif e == "STPP":
-            # Brand defence: target the OWN-BRANDED keywords (from Master KW List),
-            # exact match — so competitors can't win the brand's own terms.
-            match = _MATCH.get(f, "exact")
-            own_kws = _clean((getattr(inp, "own_branded_kws", None) or [])
-                             + (getattr(inp, "own_branded_searches", None) or []))
-            for text in own_kws:
-                add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
-                    "State": "enabled", "Keyword Text": text, "Match Type": match,
-                    "Bid": ag_bid})
-        elif e == "PT":
-            # PT targets the competitor ASINs of the category (G) via product targeting.
-            for asin in (getattr(inp, _PAT_BUCKET.get(g, ""), []) or []):
+        elif e in ("PT", "STPP"):
+            # Product targeting. STPP (brand defence) targets the OWN ASIN; PT targets
+            # the competitor ASINs of the category (G). Expression by match: Ex. ->
+            # asin="X", Exp. -> asin-expanded="X".
+            if e == "STPP":
+                asins = [own_asin] if own_asin else []
+            else:
+                asins = list(getattr(inp, _PAT_BUCKET.get(g, ""), []) or [])
+            for asin in asins:
                 add(Entity="Product Targeting", **{"Campaign ID": camp_id,
                     "Ad Group ID": ag_id, "State": "enabled", "Bid": ag_bid,
-                    "Product Targeting Expression": f'asin="{asin}"'})
+                    "Product Targeting Expression": _asin_expr(asin, f)})
     return rows
 
 
