@@ -31,6 +31,27 @@ SP_HEADERS = [
     "Shopper Cohort Percentage", "Shopper Cohort Type", "Sites", "Off-Amazon ad serving",
 ]
 
+# Sponsored Brands sheet header order (Amazon template).
+SB_HEADERS = [
+    "Product", "Entity", "Operation", "Campaign ID", "Draft Campaign ID",
+    "Portfolio ID", "Ad Group ID", "Keyword ID", "Product Targeting ID",
+    "Campaign Name", "Start Date", "End Date", "State", "Budget Type", "Budget",
+    "Bid Optimization", "Bid Multiplier", "Bid", "Keyword Text", "Match Type",
+    "Product Targeting Expression", "Ad Format", "Landing Page URL",
+    "Landing Page ASINs", "Brand Entity ID", "Brand Name", "Brand Logo Asset ID",
+    "Custom Image Asset ID", "Creative Headline", "Creative ASINs", "Video Media IDs",
+    "Creative Type",
+]
+
+# Sponsored Display sheet header order (Amazon template).
+SD_HEADERS = [
+    "Product", "Entity", "Operation", "Campaign ID", "Portfolio ID", "Ad Group ID",
+    "Ad ID", "Targeting ID", "Campaign Name", "Ad Group Name", "Start Date",
+    "End Date", "State", "Tactic", "Budget Type", "Budget", "SKU",
+    "Ad Group Default Bid", "Bid", "Bid Optimization", "Cost Type",
+    "Targeting Expression",
+]
+
 # Planning Match Type -> Amazon keyword match type.
 _MATCH = {"Ex.": "exact", "Br.": "broad", "Br.M": "broad", "Ph.": "phrase"}
 # Planning Bidding Strategy -> Amazon strategy.
@@ -246,17 +267,127 @@ def build_sp_rows(inp):
     return rows
 
 
+def _brand_name(inp):
+    """Brand Name for Sponsored Brands: the Ads profile (Campaign Naming col J),
+    else the advertised product's name."""
+    for cr in (getattr(inp, "campaign_rows", None) or []):
+        j = str(cr.get("J") or "").strip()
+        if j:
+            return j
+    return inp.products[0].get("name", "") if getattr(inp, "products", None) else ""
+
+
+def _root_keywords(sem, root):
+    """Broad KW List keywords for a Root KW group (fallback to the raw keywords)."""
+    texts = []
+    for s in sem:
+        if (s.get("category") or "").strip() == root and \
+                (s.get("disp_kw_type") or "").upper() in ("SKW", "MKW"):
+            texts += _split_broad(s.get("broad_list")) or ([s["keyword"]] if s.get("keyword") else [])
+    return [t for t in dict.fromkeys(texts) if t]
+
+
+def build_sb_rows(inp):
+    """Sponsored Brands rows (SB = Product Collection, SBV = Video) from the SB/SBV
+    campaign-plan rows. Keywords come from the root's Broad KW List. Account-only
+    creative fields (Brand Entity ID, Brand Logo Asset ID, Creative Headline, Video
+    Media IDs) are left blank for the user to fill from their Amazon asset library."""
+    own_asin = inp.products[0]["asin"] if inp.products else ""
+    brand = _brand_name(inp)
+    today = _dt.date.today().strftime("%Y%m%d")
+    sem = inp.semantics_rows
+    rows, cid = [], -1
+
+    def add(**kw):
+        r = {h: "" for h in SB_HEADERS}
+        r["Product"], r["Operation"] = "Sponsored Brands", "Create"
+        r.update(kw)
+        rows.append(r)
+
+    for cr in inp.campaign_rows:
+        if cr.get("C") not in ("SB", "SBV"):
+            continue
+        is_video = cr.get("C") == "SBV"
+        camp_id = cid
+        cid -= 1
+        texts = _root_keywords(sem, cr.get("G")) or ([cr.get("G")] if cr.get("G") else [])
+        bid = _num(cr.get("AL")) or _num(cr.get("Z")) or DEFAULT_AG_BID
+        add(Entity="Campaign", **{"Campaign ID": camp_id, "Campaign Name": _name(cr),
+            "Start Date": today, "State": "enabled", "Budget Type": "Daily",
+            "Budget": cr.get("K", 5) or 5, "Bid Optimization": "On",
+            "Ad Format": "Video" if is_video else "Product Collection",
+            "Landing Page ASINs": own_asin, "Brand Name": brand,
+            "Creative ASINs": own_asin,
+            "Creative Type": "Video" if is_video else "Product Collection"})
+        for t in texts:
+            add(Entity="Keyword", **{"Campaign ID": camp_id, "Keyword Text": t,
+                "Match Type": _MATCH.get(cr.get("F"), "exact"), "Bid": bid})
+    return rows
+
+
+def build_sd_rows(inp):
+    """Sponsored Display rows (SDI). Tactic = Views (CPC / T00020), product targeting.
+    SDI PT targets the competitor ASINs of its category; SDI remarketing (VREM/PREM)
+    targets the own product's ASIN (best-effort — audience remarketing expressions are
+    account-specific and left for the user to refine)."""
+    own_asin = inp.products[0]["asin"] if inp.products else ""
+    own_sku = inp.products[0].get("sku", "") if inp.products else ""
+    today = _dt.date.today().strftime("%Y%m%d")
+    rows, cid = [], -1
+
+    def add(**kw):
+        r = {h: "" for h in SD_HEADERS}
+        r["Product"], r["Operation"] = "Sponsored Display", "Create"
+        r.update(kw)
+        rows.append(r)
+
+    for cr in inp.campaign_rows:
+        if cr.get("C") != "SDI":
+            continue
+        camp_id = ag_id = cid
+        cid -= 1
+        bid = _num(cr.get("AL")) or _num(cr.get("Z")) or DEFAULT_AG_BID
+        add(Entity="Campaign", **{"Campaign ID": camp_id, "Campaign Name": _name(cr),
+            "Start Date": today, "State": "enabled", "Tactic": "T00020",
+            "Budget Type": "Daily", "Budget": cr.get("K", 5) or 5,
+            "Bid Optimization": "clicks", "Cost Type": "cpc"})
+        add(Entity="Ad Group", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+            "Ad Group Name": _ag_name(cr), "State": "enabled",
+            "Ad Group Default Bid": bid})
+        if own_sku or own_asin:
+            add(Entity="Product Ad", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                "State": "enabled", "SKU": own_sku or own_asin})
+        # Targeting
+        if cr.get("E") == "PT":
+            asins = list(getattr(inp, _PAT_BUCKET.get(cr.get("G"), ""), []) or [])
+        else:  # VREM / PREM remarketing -> own product (best-effort)
+            asins = [own_asin] if own_asin else []
+        for asin in asins:
+            add(Entity="Product Targeting", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                "State": "enabled", "Bid": bid, "Cost Type": "cpc",
+                "Targeting Expression": f'asin="{asin}"'})
+    return rows
+
+
 def build_sp_bulksheet(inp, out_path):
-    """Write the Amazon SP bulksheet .xlsx to out_path. Returns (path, n_campaigns)."""
-    rows = build_sp_rows(inp)
+    """Write the Amazon bulksheet .xlsx (SP + SB + SD sheets). Returns (path, n_campaigns)."""
+    sp, sb, sd = build_sp_rows(inp), build_sb_rows(inp), build_sd_rows(inp)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Sponsored Products Campaigns"
     ws.append(SP_HEADERS)
-    for r in rows:
+    for r in sp:
         ws.append([r.get(h, "") for h in SP_HEADERS])
+    wsb = wb.create_sheet("Sponsored Brands Campaigns")
+    wsb.append(SB_HEADERS)
+    for r in sb:
+        wsb.append([r.get(h, "") for h in SB_HEADERS])
+    wsd = wb.create_sheet("Sponsored Display Campaigns")
+    wsd.append(SD_HEADERS)
+    for r in sd:
+        wsd.append([r.get(h, "") for h in SD_HEADERS])
     wb.save(out_path)
-    n_camp = sum(1 for r in rows if r["Entity"] == "Campaign")
+    n_camp = sum(1 for r in (sp + sb + sd) if r["Entity"] == "Campaign")
     return out_path, n_camp
 
 
