@@ -109,6 +109,11 @@ def _negatives(cr, inp, skw_kws):
     if "Own Branded ASINs" in str(cr.get("AE") or ""):
         out += [("Negative Product Targeting", a, "")
                 for a in (getattr(inp, "own_brand_asins", None) or [])]
+    # Self-negation: the SKW-exact keywords are added as NEGATIVE EXACT in the broader
+    # MKW campaigns (Phrase / Broad / Broad-modifier) so those match types don't
+    # cannibalize the dedicated SKW-exact campaigns.
+    if str(cr.get("E") or "").upper() == "MKW" and str(cr.get("F") or "") in ("Br.", "Br.M", "Ph."):
+        out += [("Negative Keyword", k, "negativeExact") for k in _clean(skw_kws)]
     # de-dupe (entity, value, match)
     return list(dict.fromkeys(out))
 
