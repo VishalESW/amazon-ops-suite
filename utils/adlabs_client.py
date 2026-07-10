@@ -40,6 +40,14 @@ class AdLabsClient:
         self._chat_session_id = None
         self._lock = threading.Lock()
 
+    def key_fingerprint(self):
+        """Masked fingerprint of the loaded key for diagnostics (never the full key)."""
+        k = self.key or ""
+        if not k:
+            return "(empty)"
+        shown = f"{k[:8]}…{k[-6:]}" if len(k) > 16 else "(too short)"
+        return f"{shown} len={len(k)}"
+
     # -- transport --------------------------------------------------------
 
     def _headers(self):

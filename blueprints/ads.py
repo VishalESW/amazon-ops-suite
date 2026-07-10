@@ -65,6 +65,20 @@ def page():
     return render_template("ads.html")
 
 
+@bp.route("/health")
+def health():
+    """Diagnostic: shows which AdLabs endpoint + key (masked) THIS process loaded,
+    and whether a live call succeeds. Use to confirm the deployed container is
+    actually using the intended key (e.g. after rotating it in Dokploy)."""
+    info = {"url": _adlabs.url, "key": _adlabs.key_fingerprint()}
+    try:
+        _adlabs.get_entity_data("teams")
+        info.update(ok=True, message="AdLabs reachable; key has access.")
+    except Exception as e:  # noqa: BLE001
+        info.update(ok=False, message=str(e)[:400])
+    return jsonify(info)
+
+
 # ----------------------------------------------------------- profiles ---
 
 @bp.route("/profiles")
@@ -179,7 +193,8 @@ def analyze():
 
         _analysis_cache[profile_id] = {
             "target_ref": target_ref, "placement_ref": placement_ref,
-            "team_id": int(team_id), "target_acos": target_acos, "target_cpa": target_cpa,
+            "team_id": int(team_id), "profile_id": profile_id, "lookback": lookback,
+            "target_acos": target_acos, "target_cpa": target_cpa,
         }
         kw_changed = [r for r in keyword_results if r.get("rule")]
         pl_changed = [r for r in placement_results if r.get("changed")]
@@ -268,8 +283,10 @@ def apply():
     profile_id = body.get("profile_id")
     cache = _analysis_cache.get(profile_id)
     if not cache:
-        return jsonify({"success": False, "error": "No analysis in memory — run Analyze first."}), 409
+        msg = "Analysis expired — re-run Analyze, then Apply."
+        return jsonify({"success": False, "error": msg, "errors": [msg]}), 409
     team_id = cache["team_id"]
+    lookback = int(cache.get("lookback") or 14)
     kw_updates = body.get("keyword_updates") or []   # [{target_id, bid}]
     pl_updates = body.get("placement_updates") or []  # [{placement_id, pct}]
     note = "Bid/placement optimization via N-Gram Suite"
@@ -277,31 +294,54 @@ def apply():
     applied = {"keywords": 0, "placements": 0}
     errors = []
 
+    # AdLabs data references expire after ~2h and updates require a *fresh* reference
+    # from get_entity_data — the one cached at Analyze time is often stale by the time
+    # the user reviews and clicks Apply, which silently no-ops the bids. Re-fetch here.
+    filters = _date_filters(lookback)
+
     # Group keyword updates by target bid, then bulk-update each group.
     try:
-        for bid, ids in _group(kw_updates, "target_id", "bid").items():
-            sub = _adlabs.query(cache["target_ref"], _in_sql("target_id", ids))
-            ref = _adlabs.first_reference(sub)
-            _adlabs.update_entities(entity_type="target", action="update_bid",
-                                    team_id=team_id, profile_id=profile_id,
-                                    bid_update_type="SET_BID_TO_AMOUNT", bid_amount=bid,
-                                    reference=ref, note=note)
-            applied["keywords"] += len(ids)
-    except AdLabsError as e:
+        if kw_updates:
+            t_out = _adlabs.get_entity_data("target", team_id=team_id,
+                                            profile_id=profile_id, filters=filters)
+            target_ref = _adlabs.first_reference(t_out)
+            if not target_ref:
+                raise AdLabsError("could not obtain a fresh target reference")
+            for bid, ids in _group(kw_updates, "target_id", "bid").items():
+                sub = _adlabs.query(target_ref, _in_sql("target_id", ids))
+                ref = _adlabs.first_reference(sub)
+                if not ref:
+                    errors.append(f"keywords: no matching targets for bid {bid}")
+                    continue
+                _adlabs.update_entities(entity_type="target", action="update_bid",
+                                        team_id=team_id, profile_id=profile_id,
+                                        bid_update_type="SET_BID_TO_AMOUNT", bid_amount=bid,
+                                        reference=ref, note=note)
+                applied["keywords"] += len(ids)
+    except Exception as e:  # noqa: BLE001 — surface as JSON, never a silent 500
         errors.append(f"keywords: {e}")
 
     try:
-        for pct, ids in _group(pl_updates, "placement_id", "pct").items():
-            sub = _adlabs.query(cache["placement_ref"], _in_sql("placement_id", ids))
-            ref = _adlabs.first_reference(sub)
-            _adlabs.update_entities(entity_type="placement",
-                                    action="update_placement_bid_adjustment",
-                                    team_id=team_id, profile_id=profile_id,
-                                    placement_update_type="SET_TO_PERCENTAGE",
-                                    placement_update_value=float(pct),
-                                    reference=ref, note=note)
-            applied["placements"] += len(ids)
-    except AdLabsError as e:
+        if pl_updates:
+            p_out = _adlabs.get_entity_data("placement", team_id=team_id,
+                                            profile_id=profile_id, filters=filters)
+            placement_ref = _adlabs.first_reference(p_out)
+            if not placement_ref:
+                raise AdLabsError("could not obtain a fresh placement reference")
+            for pct, ids in _group(pl_updates, "placement_id", "pct").items():
+                sub = _adlabs.query(placement_ref, _in_sql("placement_id", ids))
+                ref = _adlabs.first_reference(sub)
+                if not ref:
+                    errors.append(f"placements: no matching placements for {pct}%")
+                    continue
+                _adlabs.update_entities(entity_type="placement",
+                                        action="update_placement_bid_adjustment",
+                                        team_id=team_id, profile_id=profile_id,
+                                        placement_update_type="SET_TO_PERCENTAGE",
+                                        placement_update_value=float(pct),
+                                        reference=ref, note=note)
+                applied["placements"] += len(ids)
+    except Exception as e:  # noqa: BLE001
         errors.append(f"placements: {e}")
 
     return jsonify({"success": not errors, "applied": applied, "errors": errors})
