@@ -90,10 +90,17 @@ def profiles():
         progress("Loading teams…")
         teams_text = _adlabs.get_entity_data("teams")
         teams = _TEAM_RE.findall(teams_text)
-        out = []
+        out, skipped = [], []
         for team_id, team_name in teams:
             progress(f"Loading profiles for {team_name.strip()}…")
-            ptext = _adlabs.get_entity_data("profiles", team_id=int(team_id))
+            # A team the key's plan doesn't cover (e.g. a DSP/Amazon team) raises
+            # "MCP access requires a paid plan". Skip it and keep the teams that
+            # DO work — one bad team must not blank out every profile.
+            try:
+                ptext = _adlabs.get_entity_data("profiles", team_id=int(team_id))
+            except AdLabsError as e:
+                skipped.append({"team": team_name.strip(), "reason": str(e)[:200]})
+                continue
             for row in AdLabsClient.parse_table(ptext):
                 uri = next((v for k, v in row.items() if "Resource URI" in k and v), "")
                 slug = uri.rsplit("/", 1)[-1] if uri else ""
@@ -105,8 +112,11 @@ def profiles():
                     "currency": row.get("Currency", ""), "brand": row.get("Brand", ""),
                     "slug": slug,
                 })
+        # Only fail the whole job if we got nothing AND something went wrong.
+        if not out and skipped:
+            raise AdLabsError("; ".join(f"{s['team']}: {s['reason']}" for s in skipped))
         _profiles_cache.update(ts=time.time(), data=out)
-        return {"profiles": out}
+        return {"profiles": out, "skipped": skipped}
 
     # If we already have a fresh cache, skip the job entirely.
     if _profiles_cache["data"] and time.time() - _profiles_cache["ts"] < _PROFILES_TTL:
