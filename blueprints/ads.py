@@ -65,6 +65,20 @@ def page():
     return render_template("ads.html")
 
 
+@bp.route("/health")
+def health():
+    """Diagnostic: shows which AdLabs endpoint + key (masked) THIS process loaded,
+    and whether a live call succeeds. Use to confirm the deployed container is
+    actually using the intended key (e.g. after rotating it in Dokploy)."""
+    info = {"url": _adlabs.url, "key": _adlabs.key_fingerprint()}
+    try:
+        _adlabs.get_entity_data("teams")
+        info.update(ok=True, message="AdLabs reachable; key has access.")
+    except Exception as e:  # noqa: BLE001
+        info.update(ok=False, message=str(e)[:400])
+    return jsonify(info)
+
+
 # ----------------------------------------------------------- profiles ---
 
 @bp.route("/profiles")
