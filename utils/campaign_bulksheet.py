@@ -31,16 +31,17 @@ SP_HEADERS = [
     "Shopper Cohort Percentage", "Shopper Cohort Type", "Sites", "Off-Amazon ad serving",
 ]
 
-# Sponsored Brands sheet header order (Amazon template).
+# Sponsored Brands V4 (multi-ad-group) sheet header order (Amazon template).
 SB_HEADERS = [
-    "Product", "Entity", "Operation", "Campaign ID", "Draft Campaign ID",
-    "Portfolio ID", "Ad Group ID", "Keyword ID", "Product Targeting ID",
-    "Campaign Name", "Start Date", "End Date", "State", "Budget Type", "Budget",
-    "Bid Optimization", "Bid Multiplier", "Bid", "Keyword Text", "Match Type",
-    "Product Targeting Expression", "Ad Format", "Landing Page URL",
-    "Landing Page ASINs", "Brand Entity ID", "Brand Name", "Brand Logo Asset ID",
-    "Custom Image Asset ID", "Creative Headline", "Creative ASINs", "Video Media IDs",
-    "Creative Type",
+    "Product", "Entity", "Operation", "Campaign ID", "Portfolio ID", "Ad Group ID",
+    "Ad ID", "Keyword ID", "Product Targeting ID", "Campaign Name", "Ad Group Name",
+    "Ad Name", "Start Date", "End Date", "State", "Sites", "Brand Entity ID",
+    "Budget Type", "Budget", "Bid Optimization", "Product Location", "Bid",
+    "Placement", "Percentage", "Keyword Text", "Match Type", "Native Language Keyword",
+    "Native Language Locale", "Product Targeting Expression", "Landing Page URL",
+    "Landing Page ASINs", "Landing Page Type", "Brand Name", "Consent to Translate",
+    "Brand Logo Asset ID", "Brand Logo Crop", "Custom Images", "Creative Headline",
+    "Creative ASINs", "Video Asset IDs", "Sub-pages", "Ad Title", "Product Exclusions",
 ]
 
 # Sponsored Display sheet header order (Amazon template).
@@ -62,6 +63,15 @@ _PAT_BUCKET = {"Main": "main_competitor_asins", "Low Rated": "lower_rated_asins"
                "High Priced": "higher_priced_asins", "Bestselling": "bestselling_asins"}
 
 DEFAULT_AG_BID = 0.75
+
+
+def _brand_entity_id():
+    """Sponsored Brands 'Brand Entity ID' (seller brand ID) from config."""
+    try:
+        from config import Config
+        return getattr(Config, "CAMPAIGN_BRAND_ENTITY_ID", "") or ""
+    except Exception:
+        return ""
 
 
 def _clean(terms):
@@ -298,12 +308,22 @@ def _root_keywords(sem, root):
 
 
 def build_sb_rows(inp):
-    """Sponsored Brands rows (SB = Product Collection, SBV = Video) from the SB/SBV
-    campaign-plan rows. Keywords come from the root's Broad KW List. Account-only
-    creative fields (Brand Entity ID, Brand Logo Asset ID, Creative Headline, Video
-    Media IDs) are left blank for the user to fill from their Amazon asset library."""
+    """Sponsored Brands V4 (multi-ad-group) rows from the SB/SBV campaign-plan rows.
+
+    Each plan row -> the mandatory V4 entity chain: Campaign -> Ad group ->
+    Ad (Manual Collection ad for SB / Video ad for SBV) -> Keyword. Keywords come
+    from the root's Broad KW List. Bid Optimization is "true" (Amazon-optimized);
+    the seller Brand Entity ID is written on the Campaign and Ad rows. Account-only
+    creative assets (Brand Logo Asset ID, Video asset IDs, Ad Title) are left blank
+    for the user to fill from their Amazon asset library."""
     own_asin = inp.products[0]["asin"] if inp.products else ""
+    # Manual Collection ad wants 3-10 creative ASINs; pull the brand's own ASINs.
+    own_asins = [own_asin] + [a for a in (getattr(inp, "own_brand_asins", None) or [])
+                              if a and a != own_asin]
+    own_asins = [a for a in dict.fromkeys(own_asins) if a]
+    creative_asins = ", ".join(own_asins)
     brand = _brand_name(inp)
+    brand_entity = _brand_entity_id()
     today = _dt.date.today().strftime("%Y%m%d")
     sem = inp.semantics_rows
     rows, cid = [], -1
@@ -318,19 +338,34 @@ def build_sb_rows(inp):
         if cr.get("C") not in ("SB", "SBV"):
             continue
         is_video = cr.get("C") == "SBV"
-        camp_id = cid
+        camp_id = ag_id = cid
         cid -= 1
         texts = _root_keywords(sem, cr.get("G")) or ([cr.get("G")] if cr.get("G") else [])
         bid = _num(cr.get("AL")) or _num(cr.get("Z")) or DEFAULT_AG_BID
-        add(Entity="Campaign", **{"Campaign ID": camp_id, "Campaign Name": _name(cr),
+        cname, agname = _name(cr), _ag_name(cr)
+        # 1) Campaign
+        add(Entity="Campaign", **{"Campaign ID": camp_id, "Campaign Name": cname,
             "Start Date": today, "State": "enabled", "Budget Type": "Daily",
-            "Budget": cr.get("K", 5) or 5, "Bid Optimization": "On",
-            "Ad Format": "Video" if is_video else "Product Collection",
-            "Landing Page ASINs": own_asin, "Brand Name": brand,
-            "Creative ASINs": own_asin,
-            "Creative Type": "Video" if is_video else "Product Collection"})
+            "Budget": cr.get("K", 5) or 5, "Bid Optimization": "true",
+            "Brand Entity ID": brand_entity})
+        # 2) Ad group
+        add(Entity="Ad group", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+            "Ad Group Name": agname, "State": "enabled"})
+        # 3) Ad (Video ad for SBV, Manual Collection ad for SB)
+        if is_video:
+            add(Entity="Video ad", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                "Ad Name": agname, "State": "enabled", "Brand Entity ID": brand_entity,
+                "Brand Name": brand, "Landing Page ASINs": own_asin,
+                "Creative ASINs": own_asin})
+        else:
+            add(Entity="Manual Collection ad", **{"Campaign ID": camp_id,
+                "Ad Group ID": ag_id, "Ad Name": agname, "State": "enabled",
+                "Brand Entity ID": brand_entity, "Brand Name": brand,
+                "Landing Page Type": "Product list", "Creative ASINs": creative_asins})
+        # 4) Keywords
         for t in texts:
-            add(Entity="Keyword", **{"Campaign ID": camp_id, "Keyword Text": t,
+            add(Entity="Keyword", **{"Campaign ID": camp_id, "Ad Group ID": ag_id,
+                "State": "enabled", "Keyword Text": t,
                 "Match Type": _MATCH.get(cr.get("F"), "exact"), "Bid": bid})
     return rows
 
