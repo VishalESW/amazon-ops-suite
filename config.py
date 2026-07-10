@@ -107,6 +107,10 @@ class Config:
     # Suffix appended to the short product name to form the Portfolio (col U),
     # e.g. "Lounge-IT" -> "Lounge-IT - ESW".
     CAMPAIGN_PORTFOLIO_SUFFIX = os.getenv("CAMPAIGN_PORTFOLIO_SUFFIX", " - ESW")
+    # Sponsored Brands "Brand Entity ID" (seller brand ID). Written to the Campaign
+    # and Ad rows of the SB V4 multi-ad-group bulksheet. Sellers find this in the
+    # Amazon Ads "Brand assets data" tab; vendors leave blank.
+    CAMPAIGN_BRAND_ENTITY_ID = os.getenv("CAMPAIGN_BRAND_ENTITY_ID", "ENTITYEY2504TENMNJ")
 
     # Campaign Processor v2 — managers (comma-separated emails). These get the
     # manager role (approve gates, see the approval queue); everyone else is an
