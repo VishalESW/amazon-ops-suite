@@ -39,9 +39,16 @@ def list_profiles(force=False):
     if not force and _profiles_cache["data"] and time.time() - _profiles_cache["ts"] < _PROFILES_TTL:
         return _profiles_cache["data"]
     teams_text = _client.get_entity_data("teams")
-    out = []
+    out, skipped = [], []
     for tid, tname in re.findall(r"team_id=(\d+)\s+([^\n]+?)\s+org=", teams_text):
-        ptext = _client.get_entity_data("profiles", team_id=int(tid))
+        # A team outside the key's plan (e.g. the "Amazon"/DSP team) raises
+        # "MCP access requires a paid plan". Skip it so one inaccessible team
+        # doesn't blank out every profile the picker can otherwise show.
+        try:
+            ptext = _client.get_entity_data("profiles", team_id=int(tid))
+        except AdLabsError as e:
+            skipped.append(f"{tname.strip()}: {str(e)[:200]}")
+            continue
         for row in AdLabsClient.parse_table(ptext):
             slug_m = _SLUG_RE.search(row.get("Resource URI (read this to get profile_id)", "")
                                      or " ".join(str(v) for v in row.values()))
@@ -54,6 +61,9 @@ def list_profiles(force=False):
                 "brand": (row.get("Brand") or "").strip(),
                 "slug": slug_m.group(1) if slug_m else None,
             })
+    # Only propagate an error if we got nothing at all AND something failed.
+    if not out and skipped:
+        raise AdLabsError("; ".join(skipped))
     _profiles_cache.update(ts=time.time(), data=out)
     return out
 
