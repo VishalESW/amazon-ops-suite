@@ -3,7 +3,7 @@
 | Rule                | Condition                          | New Bid                       |
 |---------------------|------------------------------------|-------------------------------|
 | High ACOS           | ACOS > Target ACOS                 | RPC x Target ACOS             |
-| High Spend, No Sales| Spend > Target CPA and Orders = 0  | (AOV / Clicks) x Target ACOS  |
+| High Spend, No Sales| Spend > Target CPA and Orders = 0  | (AOV / aCTC) x Target ACOS    |
 | Low ACOS            | ACOS < (Target - 20% buffer)       | Current Bid x 1.05..1.10      |
 | Low Visibility      | Clicks < aCTC                      | Current Bid x 1.05            |
 
@@ -69,10 +69,16 @@ def optimize(keywords, target_acos, target_cpa, options=None):
             new_bid = rpc * target_acos
         elif spend > target_cpa and orders == 0:
             rule = "High Spend, No Sales"
-            if clicks > 0:
-                new_bid = (aov / clicks) * target_acos
+            # (AOV / aCTC) x Target ACOS. AOV / aCTC = AOV x account CVR = the
+            # expected revenue per click at the account's average conversion
+            # behaviour; x Target ACOS yields the break-even bid. "Clicks" in the
+            # rule table means aCTC (account avg clicks/order) — NOT this keyword's
+            # own click count, which would divide a big AOV by a tiny number and
+            # inflate the bid (e.g. 199/17 x 0.30 = 3.52).
+            if agg["actc"] > 0:
+                new_bid = (aov / agg["actc"]) * target_acos
             else:
-                new_bid = bid  # no clicks -> leave unchanged
+                new_bid = bid  # no account conversions to estimate from -> unchanged
         elif acos is not None and acos < low_acos_threshold:
             rule = "Low ACOS"
             new_bid = bid * opt["low_acos_mult"]
