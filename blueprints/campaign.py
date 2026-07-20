@@ -509,7 +509,17 @@ def get_table(pid, filekey):
     grid = cstore.load_parsed(pid, filekey)
     if grid is None:
         abort(404)
-    sels = cdb.get_state(pid, "selections", {}).get(filekey, {})
+    all_sels = cdb.get_state(pid, "selections", {})
+    sels = all_sels.get(filekey)
+    # Seed from column A (Y/N/B/C) the first time this grid is opened. Files
+    # uploaded before column-A auto-fetch existed have no stored selection at
+    # all, so their pre-done tags would never appear. Once the user saves —
+    # even an empty set — that stored choice wins and is never re-seeded.
+    if sels is None:
+        sels = _col0_selections(grid)
+        if sels:
+            all_sels[filekey] = sels
+            cdb.save_state(pid, "selections", all_sels)
     rows = grid["rows"]   # render every row — no cap
     return jsonify({"success": True, "columns": grid["columns"], "rows": rows,
                     "keyword_col": grid["keyword_col"], "asin_cols": grid["asin_cols"],
