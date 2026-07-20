@@ -446,6 +446,17 @@ def extract_str_metrics_by_kw(df):
 _KW_TOKENS = ("search term", "keyword phrase", "search query", "keyword")
 
 
+def is_brand_name(value):
+    """True when a cell looks like a brand *name* rather than a metric value.
+    Rejects blanks and anything that is purely numeric/punctuation ('745', '12%',
+    '63.5'), which is what numeric brand columns contribute."""
+    s = str(value or "").strip()
+    if not s:
+        return False
+    return re.search(r"[A-Za-z]", s) is not None and \
+        not re.fullmatch(r"[\d\s.,%$+\-/()]+", s)
+
+
 def parse_upload(file_storage, source, raw_df=None):
     """Smart-read a raw export into a grid table for the selection UI.
 
@@ -479,6 +490,9 @@ def parse_upload(file_storage, source, raw_df=None):
         else:
             kw_idx = 0
     asin_cols = [i for i, c in enumerate(low) if "asin" in c]
+    # Keep every "brand" column — header names are too varied to filter safely
+    # (BA's real brand column is "Top Clicked Product #1: Brand"). Numeric brand
+    # metrics are screened out by value via is_brand_name() at the point of use.
     brand_cols = [i for i, c in enumerate(low) if "brand" in c]
     rows = df.astype(object).where(df.notna(), "").values.tolist()
     rows = [["" if v is None else str(v) for v in r] for r in rows]
