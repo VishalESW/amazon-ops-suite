@@ -475,11 +475,15 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
     df = Counter()
     for w in tokenised:
         df.update(set(w))
-    # Category words repeat across a large share of the terms. The floor of 5
-    # matters on small term sets, where a dominant brand ("zymox" in 4 of 13
-    # terms) would otherwise clear a percentage-only threshold and be treated as
-    # generic — which silently dropped it from the results.
-    generic = {tok for tok, n in df.items() if n > max(5, 0.15 * len(tokenised))}
+    # Category words repeat across many terms — but so does a dominant
+    # competitor ("zymox" led 70 of 200 searches), and a frequency-only rule
+    # classed it as generic and silently dropped it. The distinguishing signal
+    # is position: category words FOLLOW ("... ear wipes"), brands LEAD
+    # ("zymox ..."). So a frequent token is only generic when it rarely leads.
+    lead_df = Counter(w[0] for w in tokenised if w)
+    freq_cut = max(5, 0.15 * len(tokenised))
+    generic = {tok for tok, n in df.items()
+               if n > freq_cut and lead_df.get(tok, 0) < 0.25 * n}
     known_keys = {}
     for b in known:
         known_keys.setdefault(_brand_key(b), " ".join(str(b).split()))
