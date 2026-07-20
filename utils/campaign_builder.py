@@ -244,8 +244,10 @@ def assemble(pid):
             kw = str(row[kc]).strip() if kc < len(row) else ""
             if not kw:
                 continue
+            # First brand-column cell that actually looks like a name — guards
+            # against numeric brand metrics leaking in as brand names.
             bname = next((str(row[i]).strip() for i in bcols
-                          if i < len(row) and str(row[i]).strip()), "")
+                          if i < len(row) and orch.is_brand_name(row[i])), "")
             if tag == "Y":
                 nk = kw.lower()
                 if nk not in seen_y:
