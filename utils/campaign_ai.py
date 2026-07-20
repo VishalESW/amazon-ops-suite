@@ -358,6 +358,70 @@ def classify_targets(keywords):
     return out
 
 
+# Whole names (once punctuation/spacing is stripped) that are never a brand.
+_BRAND_STOP = {
+    "buy", "cat", "cats", "dog", "dogs", "pet", "pets", "thepet", "petsbest",
+    "best", "top", "otic", "oticsolution", "solution", "wipes", "wipe", "wipers",
+    "cleaner", "cleanser", "cleaning", "ear", "ears", "compostable", "poopbags",
+    "poop", "bags", "isleof", "for", "and", "with", "the", "kit", "refill",
+    "natural", "organic", "advanced", "care", "health", "vet", "vets", "plus",
+    "free", "new", "original", "pack", "size", "large", "small", "medium",
+    "puppy", "adult", "treats", "shampoo", "spray", "drops", "wash", "dental",
+}
+
+
+def _brand_key(s):
+    """Canonical identity of a brand name: letters+digits only, lowercased.
+    Collapses 'Epi-Otic' / 'epi otic' / 'epiotic' and "Vet's Best" / 'vets best'
+    onto one key so spacing and punctuation variants dedupe."""
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
+
+
+def _finalise_brands(cands, terms, own_brand, generic, known_keys, limit):
+    """Canonicalise, verify and rank raw brand candidates."""
+    from collections import Counter
+    term_keys = [_brand_key(t) for t in terms]
+    own_k = _brand_key(own_brand)
+
+    groups = {}
+    for name in cands:
+        n = " ".join(str(name or "").split())
+        k = _brand_key(n)
+        if not k or len(k) < 3 or k == own_k or k in _BRAND_STOP:
+            continue
+        toks = _norm(n).split()
+        if toks and all(t in generic for t in toks):   # purely category words
+            continue
+        # Must really occur in the search terms — drops model hallucinations.
+        occ = sum(1 for tk in term_keys if k in tk)
+        if not occ:
+            continue
+        # Preferred spelling: the column-derived form when we have one,
+        # otherwise the shortest candidate (drops "Curaseb antiseptic").
+        display = known_keys.get(k) or n
+        g = groups.get(k)
+        if g is None:
+            groups[k] = {"display": display, "occ": occ}
+        elif not known_keys.get(k) and len(n) < len(g["display"]):
+            groups[k] = {"display": n, "occ": occ}
+    # A key that is another key plus a trailing variant ("douxos3" vs "douxo")
+    # is the same brand — keep the base.
+    keys = set(groups)
+    out = []
+    for k, g in sorted(groups.items(),
+                       key=lambda kv: (kv[0] not in known_keys, -kv[1]["occ"])):
+        base = re.sub(r"[a-z]?\d+$", "", k)
+        if base != k and len(base) >= 3 and base in keys:
+            continue
+        # If both "Curaseb" and "Curaseb antiseptic" were proposed, the bare
+        # brand is the right one — drop the longer form carrying a product word.
+        if any(other != k and len(other) >= 4 and k.startswith(other)
+               for other in keys):
+            continue
+        out.append(g["display"])
+    return out[:limit]
+
+
 def extract_brands(search_terms, known=None, own_brand="", limit=60):
     """Brand names mentioned inside competitor search terms.
 
@@ -366,39 +430,42 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
     out so Master Keywords lists real competitors instead of only the handful of
     rows that happened to have a brand column.
 
-    known: brand names already found via a brand column — always kept, and used
-    to seed matching. Returns a de-duplicated list preserving `known` first.
+    known: brand names already found via a brand column — kept and ranked first.
+    Every candidate, model- or heuristic-derived, is canonicalised (so 'Epi-Otic'
+    and 'epi otic' collapse), checked against the stop list, and verified to
+    actually occur in the terms before it is returned.
     """
+    from collections import Counter
     terms = [str(t).strip() for t in (search_terms or []) if str(t or "").strip()]
-    out, seen = [], set()
-
-    def add(name):
-        n = str(name or "").strip()
-        k = _norm(n)
-        if not n or not k or k in seen:
-            return
-        if own_brand and k == _norm(own_brand):
-            return
-        seen.add(k)
-        out.append(n)
-
-    for b in (known or []):
-        add(b)
+    known = [k for k in (known or []) if str(k or "").strip()]
     if not terms:
-        return out[:limit]
+        return list(dict.fromkeys(known))[:limit]
 
-    # Any known brand appearing inside a term confirms it; nothing new to learn
-    # from that alone, so go to the model for the rest.
+    tokenised = [_norm(t).split() for t in terms]
+    df = Counter()
+    for w in tokenised:
+        df.update(set(w))
+    generic = {tok for tok, n in df.items() if n > max(2, 0.15 * len(tokenised))}
+    known_keys = {}
+    for b in known:
+        known_keys.setdefault(_brand_key(b), " ".join(str(b).split()))
+
+    cands = list(known)
     if available():
         pool = terms[:400]
         prompt = (
             "Below are Amazon customer search terms for competitor products.\n"
-            "Extract the BRAND names that appear in them (e.g. 'zymox ear wipes' "
-            "-> 'Zymox'). Rules:\n"
-            "- Only real product/company brand names, never generic words "
-            "('ear wipes', 'dog', 'cleaner') and never ASINs.\n"
+            "List every BRAND name that appears in them (e.g. 'zymox ear wipes' "
+            "-> 'Zymox'; 'virbac epi-otic advanced' -> 'Virbac' and 'Epi-Otic').\n"
+            "Rules:\n"
+            "- Real product/company brands only. Never generic words ('ear wipes',"
+            " 'dog', 'cleaner', 'buy', 'cat', 'poop bags') and never ASINs.\n"
+            "- One entry per brand in its correct, conventional spelling. Do NOT "
+            "return spacing/punctuation variants of the same brand (pick either "
+            "'Epi-Otic' or 'epi otic', not both).\n"
+            "- Do not append product words to the brand ('Curaseb', not 'Curaseb "
+            "antiseptic'; 'iHeartDogs', not 'iHeartDogs beef').\n"
             f"- Exclude the seller's own brand: {own_brand or '(none)'}.\n"
-            "- Normal capitalisation, one entry per brand, no duplicates.\n"
             f"- At most {limit}.\n\n"
             f"Search terms: {json.dumps(pool)}\n\n"
             'Reply ONLY a JSON array of brand strings: ["Zymox","Virbac",...]'
@@ -408,23 +475,15 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
                 {"role": "system", "content": "You output only a valid JSON array of strings."},
                 {"role": "user", "content": prompt},
             ], max_tokens=2000)
-            for b in _json_array(text):
-                if isinstance(b, str):
-                    add(b)
-            return out[:limit]
+            cands += [b for b in _json_array(text) if isinstance(b, str)]
         except CampaignAIError:
             pass
 
-    # Fallback (no AI key): the leading words of a term, minus the generic
-    # product vocabulary, are almost always the brand — "zymox ear wipes" ->
-    # "zymox", "earth rated dog wipes" -> "earth rated". Words that show up in a
-    # large share of the terms are the category words, not brands.
-    from collections import Counter
-    tokenised = [_norm(t).split() for t in terms]
-    df = Counter()
-    for w in tokenised:
-        df.update(set(w))
-    generic = {tok for tok, n in df.items() if n > max(2, 0.15 * len(tokenised))}
+    # Heuristic only fills in when the model gave us nothing. Running it beside a
+    # good model answer just adds the heads of two-word brands ("paw" next to
+    # "paw science", "john" next to "john paul"), which reads as noise.
+    if len(cands) > len(known):
+        return _finalise_brands(cands, terms, own_brand, generic, known_keys, limit)
 
     uni, bi = Counter(), Counter()
     for w in tokenised:
@@ -442,10 +501,11 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
     for first, n in uni.most_common():
         # Use the two-word form only when the head is *usually* followed by the
         # same word ("earth rated", "pet md") — otherwise the head is the brand.
-        cands = [(b, c) for b, c in bi.items() if b.split()[0] == first]
-        best = max(cands, key=lambda x: x[1]) if cands else None
-        add(best[0] if best and best[1] >= n * 0.6 else first)
-    return out[:limit]
+        pair = [(b, c) for b, c in bi.items() if b.split()[0] == first]
+        best = max(pair, key=lambda x: x[1]) if pair else None
+        cands.append(best[0] if best and n >= 2 and best[1] >= n * 0.6 else first)
+
+    return _finalise_brands(cands, terms, own_brand, generic, known_keys, limit)
 
 
 def select_keywords(candidates, product_context, limit=120):
