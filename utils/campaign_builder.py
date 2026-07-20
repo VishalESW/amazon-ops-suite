@@ -407,7 +407,12 @@ def assemble(pid):
 
     # ---- Master Keyword List manual fields ---------------------------------
     inp.competitor_searches = comp_searches
-    inp.competitor_kws = list(dict.fromkeys(comp_names))
+    # Brand-column names cover only the files that HAVE a brand column; a Search
+    # Term Report has none, so mine the competitor search terms themselves for
+    # the rest ("zymox ear wipes" -> Zymox). Column-derived names rank first.
+    inp.competitor_kws = ai.extract_brands(comp_searches,
+                                           known=list(dict.fromkeys(comp_names)),
+                                           own_brand=brand)
     inp.own_branded_searches = own_searches
     inp.own_branded_kws = list(dict.fromkeys(own_names)) or [brand]
     inp.own_brand_asins = [a for a in selected_asins]
