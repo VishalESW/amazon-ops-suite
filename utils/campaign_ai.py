@@ -358,6 +358,96 @@ def classify_targets(keywords):
     return out
 
 
+def extract_brands(search_terms, known=None, own_brand="", limit=60):
+    """Brand names mentioned inside competitor search terms.
+
+    Files without a brand column (e.g. a Search Term Report) still carry the
+    brand in the term itself — "zymox ear wipes", "virbac epi-otic". Pull those
+    out so Master Keywords lists real competitors instead of only the handful of
+    rows that happened to have a brand column.
+
+    known: brand names already found via a brand column — always kept, and used
+    to seed matching. Returns a de-duplicated list preserving `known` first.
+    """
+    terms = [str(t).strip() for t in (search_terms or []) if str(t or "").strip()]
+    out, seen = [], set()
+
+    def add(name):
+        n = str(name or "").strip()
+        k = _norm(n)
+        if not n or not k or k in seen:
+            return
+        if own_brand and k == _norm(own_brand):
+            return
+        seen.add(k)
+        out.append(n)
+
+    for b in (known or []):
+        add(b)
+    if not terms:
+        return out[:limit]
+
+    # Any known brand appearing inside a term confirms it; nothing new to learn
+    # from that alone, so go to the model for the rest.
+    if available():
+        pool = terms[:400]
+        prompt = (
+            "Below are Amazon customer search terms for competitor products.\n"
+            "Extract the BRAND names that appear in them (e.g. 'zymox ear wipes' "
+            "-> 'Zymox'). Rules:\n"
+            "- Only real product/company brand names, never generic words "
+            "('ear wipes', 'dog', 'cleaner') and never ASINs.\n"
+            f"- Exclude the seller's own brand: {own_brand or '(none)'}.\n"
+            "- Normal capitalisation, one entry per brand, no duplicates.\n"
+            f"- At most {limit}.\n\n"
+            f"Search terms: {json.dumps(pool)}\n\n"
+            'Reply ONLY a JSON array of brand strings: ["Zymox","Virbac",...]'
+        )
+        try:
+            text = chat([
+                {"role": "system", "content": "You output only a valid JSON array of strings."},
+                {"role": "user", "content": prompt},
+            ], max_tokens=2000)
+            for b in _json_array(text):
+                if isinstance(b, str):
+                    add(b)
+            return out[:limit]
+        except CampaignAIError:
+            pass
+
+    # Fallback (no AI key): the leading words of a term, minus the generic
+    # product vocabulary, are almost always the brand — "zymox ear wipes" ->
+    # "zymox", "earth rated dog wipes" -> "earth rated". Words that show up in a
+    # large share of the terms are the category words, not brands.
+    from collections import Counter
+    tokenised = [_norm(t).split() for t in terms]
+    df = Counter()
+    for w in tokenised:
+        df.update(set(w))
+    generic = {tok for tok, n in df.items() if n > max(2, 0.15 * len(tokenised))}
+
+    uni, bi = Counter(), Counter()
+    for w in tokenised:
+        lead = []
+        for tok in w[:2]:                      # brands are 1-2 leading words
+            if tok in generic or len(tok) < 2 or tok.isdigit():
+                break
+            lead.append(tok)
+        if not lead:
+            continue
+        uni[lead[0]] += 1                      # count the head separately so a
+        if len(lead) == 2:                     # varied 2nd word ("douxo dewaxing"
+            bi[" ".join(lead)] += 1            # / "douxo micellar") still totals
+
+    for first, n in uni.most_common():
+        # Use the two-word form only when the head is *usually* followed by the
+        # same word ("earth rated", "pet md") — otherwise the head is the brand.
+        cands = [(b, c) for b, c in bi.items() if b.split()[0] == first]
+        best = max(cands, key=lambda x: x[1]) if cands else None
+        add(best[0] if best and best[1] >= n * 0.6 else first)
+    return out[:limit]
+
+
 def select_keywords(candidates, product_context, limit=120):
     """Pick the best keywords to target from pooled candidates.
 
