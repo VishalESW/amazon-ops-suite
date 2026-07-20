@@ -377,8 +377,15 @@ def _brand_key(s):
     return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
 
 
-def _finalise_brands(cands, terms, own_brand, generic, known_keys, limit):
-    """Canonicalise, verify and rank raw brand candidates."""
+def _finalise_brands(cands, terms, own_brand, generic, known_keys, limit,
+                     supplemental=None):
+    """Canonicalise, verify and rank raw brand candidates.
+
+    cands are trusted (column-derived + model). `supplemental` are heuristic
+    guesses, admitted only when they don't overlap a trusted brand — so a bare
+    head like "paw" is dropped next to "paw science", while a brand the model
+    missed entirely ("Zymox") is still recovered.
+    """
     from collections import Counter
     term_keys = [_brand_key(t) for t in terms]
     own_k = _brand_key(own_brand)
@@ -407,7 +414,7 @@ def _finalise_brands(cands, terms, own_brand, generic, known_keys, limit):
     # A key that is another key plus a trailing variant ("douxos3" vs "douxo")
     # is the same brand — keep the base.
     keys = set(groups)
-    out = []
+    out, kept = [], set()
     for k, g in sorted(groups.items(),
                        key=lambda kv: (kv[0] not in known_keys, -kv[1]["occ"])):
         base = re.sub(r"[a-z]?\d+$", "", k)
@@ -419,6 +426,29 @@ def _finalise_brands(cands, terms, own_brand, generic, known_keys, limit):
                for other in keys):
             continue
         out.append(g["display"])
+        kept.add(k)
+
+    # Heuristic extras: only what the trusted set doesn't already cover.
+    for name in (supplemental or []):
+        if len(out) >= limit:
+            break
+        n = " ".join(str(name or "").split())
+        k = _brand_key(n)
+        if not k or len(k) < 3 or k == own_k or k in _BRAND_STOP or k in kept:
+            continue
+        toks = _norm(n).split()
+        if toks and all(t in generic for t in toks):
+            continue
+        if not any(k in tk for tk in term_keys):
+            continue
+        # Overlaps a brand we already have, in either direction -> it's a
+        # fragment ("paw" vs "paw science") or a padded form, not a new brand.
+        if any(other.startswith(k) or k.startswith(other) for other in kept):
+            continue
+        # Heuristic extras come off lowercased search terms — title-case them so
+        # they sit alongside the model/column spellings.
+        out.append(n.title() if n.islower() else n)
+        kept.add(k)
     return out[:limit]
 
 
@@ -445,7 +475,11 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
     df = Counter()
     for w in tokenised:
         df.update(set(w))
-    generic = {tok for tok, n in df.items() if n > max(2, 0.15 * len(tokenised))}
+    # Category words repeat across a large share of the terms. The floor of 5
+    # matters on small term sets, where a dominant brand ("zymox" in 4 of 13
+    # terms) would otherwise clear a percentage-only threshold and be treated as
+    # generic — which silently dropped it from the results.
+    generic = {tok for tok, n in df.items() if n > max(5, 0.15 * len(tokenised))}
     known_keys = {}
     for b in known:
         known_keys.setdefault(_brand_key(b), " ".join(str(b).split()))
@@ -479,12 +513,9 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
         except CampaignAIError:
             pass
 
-    # Heuristic only fills in when the model gave us nothing. Running it beside a
-    # good model answer just adds the heads of two-word brands ("paw" next to
-    # "paw science", "john" next to "john paul"), which reads as noise.
-    if len(cands) > len(known):
-        return _finalise_brands(cands, terms, own_brand, generic, known_keys, limit)
-
+    # The heuristic always runs, as a supplement: models reliably miss a few
+    # brands (Zymox, Earth Rated), and _finalise_brands only admits an extra
+    # that doesn't overlap a trusted one, so fragments stay out.
     uni, bi = Counter(), Counter()
     for w in tokenised:
         lead = []
@@ -498,14 +529,16 @@ def extract_brands(search_terms, known=None, own_brand="", limit=60):
         if len(lead) == 2:                     # varied 2nd word ("douxo dewaxing"
             bi[" ".join(lead)] += 1            # / "douxo micellar") still totals
 
+    extras = []
     for first, n in uni.most_common():
         # Use the two-word form only when the head is *usually* followed by the
         # same word ("earth rated", "pet md") — otherwise the head is the brand.
         pair = [(b, c) for b, c in bi.items() if b.split()[0] == first]
         best = max(pair, key=lambda x: x[1]) if pair else None
-        cands.append(best[0] if best and n >= 2 and best[1] >= n * 0.6 else first)
+        extras.append(best[0] if best and best[1] >= n * 0.6 else first)
 
-    return _finalise_brands(cands, terms, own_brand, generic, known_keys, limit)
+    return _finalise_brands(cands, terms, own_brand, generic, known_keys, limit,
+                            supplemental=extras)
 
 
 def select_keywords(candidates, product_context, limit=120):
