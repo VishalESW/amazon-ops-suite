@@ -295,7 +295,9 @@ UPLOAD_FIELDS = {
     "sqp_files":             ("sqp",   True,  True),
     "brand_file":            ("brand", False, True),
     "ba_tst_files":          ("batst", True,  True),
-    "str_file":              ("str",   False, False),
+    # STR still drives Orders/CPC/ACoS enrichment, but it also carries search
+    # terms — show it in Keyword Selection like every other upload.
+    "str_file":              ("str",   False, True),
 }
 GRID_LABELS = {"poe": "Product Opportunity Explorer", "h10": "H10 Reverse ASIN",
                "ba": "Brand Analytics", "sqp": "SQP Report", "brand": "Brand (H10)",
@@ -346,12 +348,22 @@ def post_uploads(pid):
                 traceback.print_exc()
                 return jsonify({"success": False, "error": f"{fs.filename}: {e}"}), 400
             cstore.save_parsed(pid, filekey, grid)
+            # Any grid with a keyword column belongs in Keyword Selection.
+            row_grid = has_grid and grid["keyword_col"] is not None
+            # Pre-fill the selection from column A (Y/N/B/C), same as the
+            # multi-sheet path, so a pre-tagged export lands ready to verify.
+            auto_sel = _col0_selections(grid)
+            if auto_sel:
+                sel_state = cdb.get_state(pid, "selections", {})
+                sel_state[filekey] = auto_sel
+                cdb.save_state(pid, "selections", sel_state)
             uploads.append({
                 "filekey": filekey, "source": source, "field": field,
                 "filename": fs.filename, "label": _label_for(source, fs.filename),
                 "rowcount": len(grid["rows"]), "cols": len(grid["columns"]),
                 "keyword_col": grid["keyword_col"],
-                "asin_cols": grid["asin_cols"], "has_grid": has_grid,
+                "asin_cols": grid["asin_cols"], "has_grid": row_grid,
+                "selected": len(auto_sel),
             })
             added += 1
     cdb.save_state(pid, "uploads", uploads)
@@ -409,7 +421,6 @@ def upload_workbook(pid):
                             "rows": len(raw_df), "cols": len(raw_df.columns)})
             continue
 
-        has_grid = source != "str"
         try:
             grid = orch.parse_upload(None, source, raw_df=raw_df)
         except Exception as e:
@@ -426,6 +437,10 @@ def upload_workbook(pid):
         cstore.save_raw(pid, filekey,
                         FileStorage(stream=bio, filename=f"{sheet_name}.xlsx"))
         cstore.save_parsed(pid, filekey, grid)
+
+        # Every sheet with a keyword column belongs in Keyword Selection —
+        # including a Search Term Report, which also feeds Orders/CPC/ACoS.
+        has_grid = grid["keyword_col"] is not None
 
         # Auto-fetch the pre-done selection from column A (Y/N/B/C) so it shows
         # pre-filled in the Keyword Selection grid — the user just verifies + saves.
