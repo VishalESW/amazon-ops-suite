@@ -379,15 +379,20 @@ def _build_asin_list(ws, inp: BuildInput):
         r += 1
     # CTR data block (cols L..AA) — per-ASIN metrics so E/F/G SUMIFS resolve.
     cr = lay.data_row
+    # ACOS (Y) is derived, not pulled: Spend / Sales, as a live percentage — a
+    # raw pulled ratio showed as e.g. 1.7797 instead of 177.97%. Kept as a
+    # formula so it always agrees with the Spend (T) and Sales (V) in the row.
     block = [("L", "asin"), ("M", "sku"), ("N", "title"), ("O", "state"),
              ("P", "profile"), ("Q", "impression"), ("R", "click"), ("S", "ctr"),
              ("T", "spend"), ("U", "cpc"), ("V", "sales"), ("W", "orders"),
-             ("Y", "acos"), ("Z", "price"), ("AA", "asp")]
+             ("Z", "price"), ("AA", "asp")]
     for m in inp.asin_ctr:
         for col, key in block:
             v = m.get(key)
             if v not in (None, ""):
                 _set(ws, col, cr, v)
+        if m.get("sales") not in (None, "") or m.get("spend") not in (None, ""):
+            _setf(ws, "Y", cr, f"=IF(V{cr}=0,0,T{cr}/V{cr})", PCT1)
         cr += 1
 
 
