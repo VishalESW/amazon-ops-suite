@@ -464,11 +464,29 @@ def parse_planning_workbook(path):
     # --- Campaign Naming -> campaign_rows (keyed by column letter, A,B,C…) ------
     campaign_rows, own_asin, own_sku = [], "", ""
     cn = wb["Campaign Naming, Bids & Targets"]
-    for r in cn.iter_rows(min_row=2, values_only=True):
+    cn_rows = list(cn.iter_rows(values_only=True))
+    # The "Action" column (normally col A) is the user's include switch: only
+    # rows marked "Create" go into the bulksheet; "Don't create" (or anything not
+    # starting with "create") is skipped. Locate it by header, default to col A.
+    _cn_hdr = [str(c or "").strip().lower() for c in (cn_rows[0] if cn_rows else [])]
+    i_action = next((i for i, h in enumerate(_cn_hdr) if h == "action"), 0)
+
+    def _action(r):
+        return (str(r[i_action]).strip().lower()
+                if r and i_action < len(r) and r[i_action] not in (None, "") else "")
+
+    # Only enforce the switch when the column is actually in use — a workbook
+    # generated before this column existed leaves it blank and must build fully.
+    action_in_use = any(_action(r).startswith(("create", "don")) or "not create" in _action(r)
+                        for r in cn_rows[1:])
+
+    for r in cn_rows[1:]:
         if not any(c not in (None, "") for c in r):
             continue
         cr = {get_column_letter(i + 1): ("" if v is None else v) for i, v in enumerate(r)}
         if str(cr.get("C", "")).strip():          # a real campaign row (has a type)
+            if action_in_use and not _action(r).startswith("create"):
+                continue                          # "Don't create" / blank -> skip
             campaign_rows.append(cr)
             if not own_asin:
                 aa = str(cr.get("AA", "") or "").strip()   # ASIN/SKU column
