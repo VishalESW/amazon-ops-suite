@@ -154,7 +154,10 @@ def assemble(pid):
     camp_ctx = {
         "profile": brand,                       # J  (Ads profile name)
         "product": default_product,             # B  (short product label)
-        "brand_legal": cfg.CAMPAIGN_BRAND_LEGAL, # N  (legal entity)
+        # N (Brand) = this project's brand, i.e. its AdLabs profile name
+        # ("Oh Norman!"), NOT a single hardcoded legal entity — the app serves
+        # many brands/accounts, so column N must follow the project.
+        "brand_legal": brand,
         "portfolio_suffix": cfg.CAMPAIGN_PORTFOLIO_SUFFIX,  # U = product + suffix
         "asin_sku": (f"{default_asin}/{default_sku}" if default_asin and default_sku
                      else (default_asin or "")),  # AA
