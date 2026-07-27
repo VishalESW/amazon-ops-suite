@@ -219,6 +219,65 @@ _FEATURE = {
     "telescopic", "retractable", "foldable", "rearview", "armrest", "console",
 }
 
+# --------------------------------------------------------------------------- #
+# 6-step PPC root-keyword priority chain (stop at the first step that matches). #
+# Step 1 Brand > 2 Medical/Ingredient > 3 Form > 4 Location/Surface >          #
+# 5 Problem/Condition > 6 Generic type; else Rule 7 "gen".                      #
+# --------------------------------------------------------------------------- #
+_STEP2_MEDICAL = {
+    "antifungal", "antibacterial", "antimicrobial", "antiseptic", "antibiotic",
+    "enzymatic", "medicated", "medical", "probiotic", "nontoxic", "toxic",
+    "hypoallergenic", "ketoconazole", "miconazole", "chlorhexidine", "clotrimazole",
+    "boric", "salicylic", "benzethonium", "aloe", "witchhazel", "alcohol", "peroxide",
+}
+_STEP3_FORM = {
+    "wipes", "wipe", "pads", "pad", "solution", "kit", "spray", "finger", "foam",
+    "foaming", "squeegee", "microfiber", "brush", "cloth", "gel", "drops", "liquid",
+    "powder", "roll", "stick", "rinse", "mousse", "towelette", "towelettes",
+}
+_STEP4_LOCATION = {
+    "interior", "inside", "inner", "indoor", "exterior", "outdoor", "outside",
+    "outer", "mirror", "rearview", "vent", "dashboard", "dash", "window",
+    "windshield", "windscreen", "seat", "console", "cabin",
+}
+_STEP5_PROBLEM = {
+    "infection", "yeast", "mites", "mite", "bacteria", "bacterial", "fungal",
+    "foggy", "fog", "antifog", "streak", "odor", "odour", "smelly", "smell",
+    "waterproof", "itch", "itchy", "itching", "wax", "waxy", "allergy", "allergic",
+    "grime", "dirt", "residue", "buildup",
+}
+_STEP6_GENERIC = {
+    "holder", "mount", "stand", "tool", "detailing", "cleaner", "cleanser",
+    "cleaning", "wash", "care", "dispenser", "applicator", "remover", "cleaningkit",
+}
+
+# Rule 4 / Rule 5 — fold synonyms and near-duplicates onto ONE canonical root so
+# the same concept never appears under two labels.
+_ROOT_CANON = {
+    "cleanser": "cleaner", "cleaning": "cleaner", "clean": "cleaner",
+    "inside": "interior", "inner": "interior", "indoor": "interior",
+    "outdoor": "exterior", "outside": "exterior", "outer": "exterior",
+    "yeast": "infection", "mites": "infection", "mite": "infection",
+    "bacteria": "infection", "bacterial": "infection", "fungal": "infection",
+    "wipe": "wipes", "pads": "wipes", "pad": "wipes", "towelette": "wipes",
+    "towelettes": "wipes", "odour": "odor", "smelly": "odor", "smell": "odor",
+    "fog": "foggy", "itchy": "itch", "itching": "itch", "windscreen": "windshield",
+    "rearview": "mirror", "dash": "dashboard", "foaming": "foam", "toxic": "nontoxic",
+}
+# Priority chain the heuristic walks (step 1 = brand handled separately). NOTE:
+# Problem (step 5) is placed before Location (step 4): when a keyword carries both
+# a condition word and a surface word, the rule's own examples make the condition
+# the root ("streak free window cleaner" -> streak, not window; "foggy windshield
+# cleaner" -> foggy). No location example contains a problem word, so this ordering
+# reproduces every example while keeping the earlier steps strictly dominant.
+_ROOT_STEPS = [_STEP2_MEDICAL, _STEP3_FORM, _STEP5_PROBLEM, _STEP4_LOCATION, _STEP6_GENERIC]
+
+
+def _canon_root(root):
+    """One lowercase word, folded onto its canonical group (Rules 1, 4, 5)."""
+    r = re.sub(r"[^a-z0-9]", "", str(root or "").strip().lower().split(" ")[0])
+    return _ROOT_CANON.get(r, r)
+
 
 def _cap_roots(mapping, max_roots):
     """Fold the least-used roots into the single most-used one so the result never
@@ -233,23 +292,35 @@ def _cap_roots(mapping, max_roots):
 
 
 def _roots_heuristic(keywords, custom):
-    """Deterministic root per keyword: custom roots first, then brand/device,
-    then feature/type, else the most-frequent meaningful noun in the phrase."""
-    custom = [c for c in (custom or []) if c]
+    """Deterministic root per keyword following the 6-step priority chain:
+    custom roots > brand/device > medical/ingredient > form > location/surface >
+    problem/condition > generic type; else 'gen' (Rule 7). One lowercase word,
+    canonicalised (Rules 1/4/5). The root always exists in the keyword (Rule 2)."""
+    custom = [_canon_root(c) for c in (custom or []) if c]
     out = {}
     for kw in keywords:
         toks = [w for w in re.split(r"[^a-z0-9]+", kw.lower()) if w]
         root = ""
-        for src in (custom, _BRAND_DEVICE, _FEATURE):
-            hit = next((w for w in toks if w in src), "")
-            if hit:
-                root = hit
+        # Custom roots first, then Step 1 (brand/device). Match the keyword token
+        # OR its canonical group (so a custom root "cleaner" catches "cleaning").
+        for w in toks:
+            if _canon_root(w) in custom:
+                root = _canon_root(w)
                 break
         if not root:
-            # generic: longest non-stopword token (most descriptive noun)
+            root = next((w for w in toks if w in _BRAND_DEVICE), "")
+        # Steps 2-6, absolute order — first step with a matching token wins.
+        if not root:
+            for step in _ROOT_STEPS:
+                hit = next((w for w in toks if w in step), "")
+                if hit:
+                    root = hit
+                    break
+        if not root:
+            # Rule 7 outlier: most descriptive (longest) non-stopword token.
             cands = [w for w in toks if len(w) > 2 and not w.isdigit() and w not in _STOP]
             root = max(cands, key=len) if cands else (toks[0] if toks else "gen")
-        out[kw] = root
+        out[kw] = _canon_root(root) or "gen"
     return out
 
 
@@ -282,19 +353,36 @@ def assign_roots_ruled(keywords, custom_roots=None, max_roots=15):
             f"{json.dumps(custom)}.\n" if custom else ""
         )
         prompt = (
-            "You are a PPC keyword organization specialist. Assign a single ROOT "
-            "keyword to each keyword below.\n"
-            "Priority for picking the root:\n"
-            "1. Brand/Device name (magsafe, iphone, samsung, tesla, jeep, android, "
-            "motorola, pixel, ...) -> that word is the root.\n"
-            "2. Feature/Type (magnetic, mirror, vent, wireless, dashboard, suction, "
-            "...) -> that word is the root.\n"
-            "3. Foreign language -> group ALL foreign-language keywords under ONE "
-            "root word from that language (e.g. 'carro' for Spanish).\n"
-            "4. Generic -> the most descriptive noun (mount, holder, phone, car, ...).\n"
-            "Rules: one lowercase word only; the root must appear in the keyword or be "
-            "a clear parent category of it; every keyword gets a root; be consistent "
-            f"(same word -> same root); use NO MORE than {max_roots} distinct roots total.\n"
+            "You are a PPC keyword taxonomy specialist. Assign exactly ONE root "
+            "keyword to each keyword. The root is the single most specific, "
+            "distinctive word that already exists in the keyword — not a category "
+            "or theme.\n\n"
+            "THE 6-STEP PRIORITY CHAIN — work in order, STOP at the first step that "
+            "matches (an earlier step always wins):\n"
+            "1. Brand / Product name / proper noun (magsafe, iphone, samsung, tesla, "
+            "jeep, cybertruck, epiotic) -> that word.\n"
+            "2. Medical / clinical / ingredient / active word (ketoconazole, "
+            "antifungal, enzymatic, medicated, nontoxic) -> that word.\n"
+            "3. Form / format / delivery method (wipes, solution, kit, spray, finger, "
+            "foam, squeegee, microfiber, brush) -> that word.\n"
+            "4. Location / surface / application - WHERE it is used or what surface "
+            "(interior, mirror, vent, dashboard, exterior, window) -> that word.\n"
+            "5. Problem / condition / use case (infection, foggy, streak, antifog, "
+            "odor, waterproof) -> that word.\n"
+            "6. Generic product type - the most descriptive noun (holder, mount, "
+            "stand, tool, detailing, cleaner) -> that word.\n"
+            "7. Only if NONE of steps 1-6 fit, use 'gen' (should be <5% of the list).\n\n"
+            "CRITICAL RULES:\n"
+            "- ONE lowercase word only. Never two words, never a phrase.\n"
+            "- The word must appear in (or be directly implied by) the keyword. "
+            "Never invent a word that isn't there.\n"
+            "- Group synonyms onto ONE root: cleaner/cleanser/cleaning->cleaner; "
+            "inside/inner/indoor->interior; outdoor/outside->exterior; "
+            "yeast/mites/bacteria/infection->infection; wipe/wipes/pads->wipes.\n"
+            "- Foreign-language keywords: group under ONE root word from that "
+            "language (Spanish car->carro, cleaner->vidrios, phone->celular).\n"
+            "- Be consistent: the same distinctive word always gets the same root.\n"
+            f"- Use NO MORE than {max_roots} distinct roots total.\n"
             f"{custom_line}"
             f"Keywords: {json.dumps(kws[:400])}\n\n"
             'Reply ONLY a JSON array of objects: [{"kw":"...","root":"..."}]'
@@ -309,10 +397,18 @@ def assign_roots_ruled(keywords, custom_roots=None, max_roots=15):
             for d in data:
                 if not isinstance(d, dict):
                     continue
-                kw, root = valid.get(_norm(d.get("kw"))), str(d.get("root") or "").strip().lower()
-                root = re.sub(r"[^a-z0-9]", "", root.split()[0]) if root else ""
-                if kw and root:
+                kw = valid.get(_norm(d.get("kw")))
+                root = _canon_root(d.get("root"))
+                if not kw or not root:
+                    continue
+                # Rule 2: the root must actually occur in the keyword (allowing its
+                # canonical group). If the model invented a word, re-derive it from
+                # the chain instead. Foreign-language 'gen'-style roots are kept.
+                kw_toks = {_canon_root(w) for w in re.split(r"[^a-z0-9]+", kw.lower()) if w}
+                if root in kw_toks or root == "gen":
                     mapping[kw] = root
+                else:
+                    mapping[kw] = root_for(kw, custom) or root
             # Fill any keyword the model skipped, then enforce the category cap.
             missing = [k for k in kws if k not in mapping]
             if missing:
