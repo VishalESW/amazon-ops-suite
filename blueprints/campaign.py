@@ -202,6 +202,19 @@ def delete_project(pid):
     return jsonify({"success": True, "redirect": url_for("campaign.index")})
 
 
+@bp.route("/projects/<pid>/rename", methods=["POST"])
+def rename_project(pid):
+    """Rename a project. The project name is a free-text label the user controls;
+    the profile name (its AdLabs profile) is unchanged."""
+    if not cdb.get_project(pid):
+        abort(404)
+    name = (request.get_json(silent=True) or {}).get("name", "").strip()
+    if not name:
+        return jsonify({"success": False, "error": "Name cannot be empty"}), 400
+    cdb.update_project(pid, name=name[:120])
+    return jsonify({"success": True, "name": name[:120]})
+
+
 # ----------------------------------------------------------- ASIN dashboard ---
 @bp.route("/projects/<pid>/asins")
 def asins(pid):
