@@ -201,7 +201,9 @@ def assemble(pid):
             _collect_sv(sv_by_kw, orch._extract(df, "Brand"))
             cvr_by_kw.update(orch.extract_cvr_by_kw(df, "brand"))
         elif src == "batst":
-            inp.ba_tst[u["label"]] = orch._rows(orch.read_table_smart(fs, "batst"))
+            # Keep the upload's own header + column order (Selection is col A) so
+            # the workbook tab isn't shifted against the template's fixed header.
+            inp.ba_tst[u["label"]] = orch._grid(orch.read_table_smart(fs, "batst"))
         elif src == "str":
             df = orch.read_table_smart(fs, "str")
             inp.str_table = orch._canonicalize(df, orch.STR_CANON)

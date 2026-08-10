@@ -695,7 +695,19 @@ def _prepare_ba_tabs(wb, ba_tst: dict):
         existing.discard(ws.title)
         ws.title = _safe_sheet_title(f"BA TST - {word}", existing)
         existing.add(ws.title)
-        _write_rows(ws, ba_tst[word], BA_LAYOUT.data_row, start_col=1)
+        data = ba_tst[word]
+        # New format carries the upload's own header (Selection is col A);
+        # write it over the template's fixed header so columns line up. Legacy
+        # (list) values fall back to the template header.
+        if isinstance(data, dict):
+            header, rows = data.get("header") or [], data.get("rows") or []
+        else:
+            header, rows = None, data
+        if header:
+            for c in range(1, ws.max_column + 1):       # clear the template header
+                _put(ws, BA_LAYOUT.header_row, c, None)
+            _write_rows(ws, [header], BA_LAYOUT.header_row, start_col=1)
+        _write_rows(ws, rows, BA_LAYOUT.data_row, start_col=1)
     # Remove leftover template example tabs (e.g. the sample "Golf" set).
     for ws in base_tabs[len(words):]:
         wb.remove(ws)

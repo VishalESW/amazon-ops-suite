@@ -174,6 +174,15 @@ def _rows(df):
     return [] if df is None or df.empty else df.values.tolist()
 
 
+def _grid(df):
+    """{'header': [...], 'rows': [[...], ...]} — used where the sheet must keep the
+    uploaded file's own column order/labels (e.g. BA TST, whose Selection column
+    is col A and must not be forced into the template's fixed header order)."""
+    if df is None or df.empty:
+        return {"header": [], "rows": []}
+    return {"header": [str(c) for c in df.columns], "rows": df.values.tolist()}
+
+
 # Canonical data-table headers (exact order) for the sheets whose columns feed
 # live formulas. Uploaded columns are matched to these BY NAME so they land in
 # the exact cells the formulas read — regardless of the export's column order.
@@ -587,7 +596,7 @@ def generate(form, files, out_path, categories=None):
         if not getattr(fs, "filename", ""):
             continue
         word = _ba_word(fs.filename)
-        inp.ba_tst[word] = _rows(read_table_smart(fs, "batst"))
+        inp.ba_tst[word] = _grid(read_table_smart(fs, "batst"))
 
     # ---- Semantics: select + categorise + classify --------------------------
     selected = campaign_ai.select_keywords(candidates, product_ctx)
