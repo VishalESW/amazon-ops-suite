@@ -315,9 +315,47 @@ def _sanitize_xludf(wb):
         pass
 
 
+_SAMPLE_ASIN_RE = re.compile(r"B0[A-Z0-9]{8}", re.I)
+
+
+def _strip_sample_notes(wb):
+    """The shipped template carries sample-project ("Be Right Golf") text and
+    sample ASINs in preamble / note / echo cells the per-sheet builders never
+    touch — they only clear the data grid (rows at/after data_row). Blank those
+    so one project's identity can never leak into another project's workbook.
+
+    Two passes:
+      1) A generic scrub of every managed sheet's preamble (rows above data_row):
+         any plain-text cell holding an ASIN token or the sample brand name is a
+         leftover filter echo / note, so it is cleared. Formulas are left alone,
+         and the data grid itself is untouched. Builders that write ASIN-input
+         lists run AFTER this and repopulate with the real project's ASINs.
+      2) POE's "Customer Need" example list, which is plain product text (no ASIN)
+         and so needs an explicit clear."""
+    for title, lay in LAYOUTS.items():
+        ws = wb[title] if title in wb.sheetnames else None
+        if ws is None:
+            continue
+        for r in range(1, lay.data_row):                 # preamble only
+            for c in range(1, ws.max_column + 1):
+                cell = ws.cell(row=r, column=c)
+                v = cell.value
+                if not isinstance(v, str) or v.startswith("="):
+                    continue
+                if "be right golf" in v.lower() or _SAMPLE_ASIN_RE.search(v):
+                    cell.value = None
+    if S_POE in wb.sheetnames:
+        ws = wb[S_POE]
+        for r in range(4, LAYOUTS[S_POE].data_row - 3):   # B4..B19, keep B20 header
+            c = ws.cell(row=r, column=2)
+            if isinstance(c.value, str):
+                c.value = None
+
+
 def build(inp: BuildInput, out_path: str) -> str:
     wb = openpyxl.load_workbook(TEMPLATE_PATH)
     _sanitize_xludf(wb)
+    _strip_sample_notes(wb)
 
     has_str = bool(inp.str_table)
     sqp_tabs = _prepare_sqp_tabs(wb, inp.sqp_reports)
@@ -417,7 +455,10 @@ def _build_poe(ws, inp: BuildInput):
 def _build_h10(ws, inp: BuildInput):
     lay = LAYOUTS[S_H10]
     _clear(ws, lay)
-    # ASIN input list A4.. (do not collide with keyword header at row 15)
+    # ASIN input list A4.. (above the keyword header) — clear the template's
+    # sample ASINs first so an unused slot never keeps a sample-project ASIN.
+    for r in range(H10_ASIN_START, lay.header_row):
+        _set(ws, "A", r, None)
     for i, asin in enumerate(inp.h10_asins[: lay.header_row - H10_ASIN_START]):
         _set(ws, "A", H10_ASIN_START + i, asin)
     # keyword table A15(header).. data 16+
@@ -427,6 +468,9 @@ def _build_h10(ws, inp: BuildInput):
 def _build_brand(ws, inp: BuildInput):
     lay = LAYOUTS[S_BRAND]
     _clear(ws, lay)
+    # Clear the template's sample ASIN(s) in the input list above the data row.
+    for r in range(BRAND_ASIN_START, lay.header_row):
+        _set(ws, "A", r, None)
     for i, asin in enumerate(inp.brand_asins[:1]):
         _set(ws, "A", BRAND_ASIN_START + i, asin)
     _write_rows(ws, inp.brand_table, lay.data_row, start_col=1)
@@ -587,9 +631,20 @@ def _prepare_sqp_tabs(wb, sqp_reports: dict):
     lay = LAYOUTS[TEMPLATE_SQP]
     asins = list(sqp_reports.keys())
     tabs = []
+
+    def _retarget(ws, asin):
+        """Point the tab's sample ASIN echo (A10) at this project's ASIN so the
+        template's sample ASIN never survives."""
+        _set(ws, "D", 4, asin)
+        _set(ws, "A", 10, f'ASIN or Product=["{asin}"]' if asin else None)
+
     if not asins:
-        # no SQP provided: clear the example tab's data so XLOOKUP returns 0
+        # No SQP provided: clear the example data AND strip the sample ASIN from
+        # the tab name / echo so the template's ASIN doesn't leak.
         _clear(base, lay)
+        _retarget(base, "")
+        existing = {ws.title for ws in wb.worksheets if ws is not base}
+        base.title = _safe_sheet_title("SQP Report", existing)
         return []
     existing = {ws.title for ws in wb.worksheets if ws is not base}
     # first ASIN reuses the base tab
@@ -597,7 +652,7 @@ def _prepare_sqp_tabs(wb, sqp_reports: dict):
     base.title = _safe_sheet_title(f"SQP Report {first}", existing)
     existing.add(base.title)
     _clear(base, lay)
-    _set(base, "D", 4, first)
+    _retarget(base, first)
     _write_rows(base, sqp_reports[first], lay.data_row, start_col=1)
     tabs.append(base.title)
     # additional ASINs clone the base
@@ -606,26 +661,64 @@ def _prepare_sqp_tabs(wb, sqp_reports: dict):
         ws.title = _safe_sheet_title(f"SQP Report {asin}", existing)
         existing.add(ws.title)
         _clear(ws, lay)
-        _set(ws, "D", 4, asin)
+        _retarget(ws, asin)
         _write_rows(ws, sqp_reports[asin], lay.data_row, start_col=1)
         tabs.append(ws.title)
     return tabs
 
 
 def _prepare_ba_tabs(wb, ba_tst: dict):
-    """Fill BA TST tabs from uploaded per-word tables. Existing template tabs are
-    cleared; words without an existing tab are skipped (v1)."""
-    existing = {ws.title: ws for ws in wb.worksheets if ws.title.startswith("BA TST")}
-    for title, ws in existing.items():
-        _clear(ws, BA_LAYOUT)
-    for word, rows in ba_tst.items():
-        # match by suffix word, case-insensitive, trimmed
-        target = None
-        for title, ws in existing.items():
-            suffix = title.split("-", 1)[-1].strip().lower()
-            if suffix == str(word).strip().lower():
-                target = ws
-                break
-        if target is None:
-            continue
-        _write_rows(target, rows, BA_LAYOUT.data_row, start_col=1)
+    """Repurpose the template BA TST tabs to THIS project's uploaded words.
+
+    The template ships example BA TST tabs named after a sample project (e.g.
+    "BA TST - Golf"). The old logic only filled a tab whose name already matched
+    an uploaded word, so a project with different words kept the sample tab names
+    and lost its own data — surfacing another project's identity in the workbook.
+    Instead, rename one tab per uploaded word (cloning when there are more words
+    than template tabs) and delete any leftover example tabs — the same approach
+    as the SQP step."""
+    base_tabs = [ws for ws in wb.worksheets if ws.title.startswith("BA TST")]
+    if not base_tabs:
+        return
+    words = [w for w in ba_tst.keys() if str(w).strip()]
+    if not words:
+        # No BA TST uploaded: drop the sample tabs entirely (nothing references
+        # them by formula) so none of their sample identity survives.
+        for ws in base_tabs:
+            wb.remove(ws)
+        return
+    existing = {ws.title for ws in wb.worksheets}
+    base = base_tabs[0]
+    for i, word in enumerate(words):
+        ws = base_tabs[i] if i < len(base_tabs) else wb.copy_worksheet(base)
+        _reset_ba_tab(ws, word)
+        existing.discard(ws.title)
+        ws.title = _safe_sheet_title(f"BA TST - {word}", existing)
+        existing.add(ws.title)
+        _write_rows(ws, ba_tst[word], BA_LAYOUT.data_row, start_col=1)
+    # Remove leftover template example tabs (e.g. the sample "Golf" set).
+    for ws in base_tabs[len(words):]:
+        wb.remove(ws)
+
+
+def _reset_ba_tab(ws, word):
+    """Wipe a template BA TST tab of all sample content before it is reused for a
+    new word. `_clear` alone is not enough: sample data ran past the managed
+    columns, and the control panel (rows 1..8) carries the old filter word — both
+    would otherwise leak the sample project's identity."""
+    # Data rows, FULL width (sample data extended past the managed last column).
+    end = min(BA_LAYOUT.clear_to, ws.max_row)
+    for r in range(BA_LAYOUT.data_row, end + 1):
+        for c in range(1, ws.max_column + 1):
+            _put(ws, r, c, None)
+    # Control panel: retarget the filter-word cells to this project's word.
+    # Label-driven (not word-driven) so it is independent of the template samples.
+    for r in range(1, BA_LAYOUT.header_row):
+        for c in range(1, ws.max_column + 1):
+            v = ws.cell(row=r, column=c).value
+            if not isinstance(v, str):
+                continue
+            if v.strip().lower() == "search term filter word":
+                ws.cell(row=r, column=c + 1).value = word
+            elif re.match(r'\s*search\s*term\s*=\s*\[', v, re.I):
+                ws.cell(row=r, column=c).value = f'Search Term=["{word}"]'
