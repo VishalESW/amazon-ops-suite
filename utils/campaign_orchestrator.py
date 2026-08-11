@@ -222,6 +222,11 @@ SQP_CANON = [  # -> sheet cols A..N (A=Search Query, D=Search Query Volume)
 ]
 
 
+# Filler words ignored when matching columns by word-token overlap, so a variant
+# like "Search Volume (360 days)" still matches "Search Volume (Past 360 days)".
+_CANON_STOPWORDS = {"the", "of", "in", "past", "days", "day", "last", "total", "a"}
+
+
 def _norm_h(s):
     return re.sub(r"[^a-z0-9]", "", str(s or "").lower())
 
@@ -272,6 +277,34 @@ def _canonicalize(df, canonical):
                 if m > best_len:
                     best, best_len = c, m
         if best is not None and best_len >= 4:
+            chosen[i] = best
+            used.add(best)
+    # pass 3: token-overlap for the columns substring missed — e.g. "Search
+    # Volume (360 days)" vs the canonical "Search Volume (Past 360 days)" (one
+    # extra word breaks the substring rule, so SV was dropped and the Semantics
+    # search-volume formula read 0). Match on shared word tokens (Jaccard), best
+    # wins; conservative thresholds keep "…Growth (90 days)" from stealing the slot.
+    def _toks(s):
+        return {t for t in re.split(r"[^a-z0-9]+", str(s).lower()) if t and t not in _CANON_STOPWORDS}
+    canon_toks = [_toks(c) for c in canonical]
+    df_toks = {c: _toks(c) for c in df_cols}
+    for i, cn in enumerate(canon_toks):
+        if chosen[i] is not None or not cn:
+            continue
+        best, best_score = None, 0.0
+        for c in df_cols:
+            if c in used:
+                continue
+            ct = df_toks[c]
+            if not ct:
+                continue
+            inter = len(cn & ct)
+            if inter < 2:
+                continue
+            score = inter / len(cn | ct)          # Jaccard
+            if score > best_score:
+                best, best_score = c, score
+        if best is not None and best_score >= 0.6:
             chosen[i] = best
             used.add(best)
     out = []
