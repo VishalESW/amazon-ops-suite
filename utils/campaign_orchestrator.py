@@ -244,6 +244,20 @@ def _canonicalize(df, canonical):
         if col is not None and col not in used:
             chosen[i] = col
             used.add(col)
+    # pass 1.5: the upload's Selection column -> the canonical Select/Selected
+    # slot. Uploads label it "Selection"; the canon uses "Selected? (Y/N/...)" /
+    # "Select (Y/N/...)". Same intent, but the names don't match by substring, so
+    # the selection tags were dropped. Match any still-unused "select*" columns.
+    def _is_select(n):
+        return n.startswith("select")
+    for i, cn in enumerate(canon_norm):
+        if chosen[i] is not None or not _is_select(cn):
+            continue
+        for c in df_cols:
+            if c not in used and _is_select(_norm_h(c)):
+                chosen[i] = c
+                used.add(c)
+                break
     # pass 2: substring match (one contains the other), longest wins
     for i, cn in enumerate(canon_norm):
         if chosen[i] is not None:
