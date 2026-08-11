@@ -279,6 +279,40 @@ def _canon_root(root):
     return _ROOT_CANON.get(r, r)
 
 
+def _singular(w):
+    """Best-effort English singular key for grouping plurals (burners->burner,
+    supplements->supplement, batteries->battery). Conservative: leaves short words
+    and 'ss' endings (glass) alone."""
+    if len(w) > 4 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 4 and w.endswith(("ses", "xes", "zes", "ches", "shes")):
+        return w[:-2]
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _merge_plurals(mapping):
+    """Rules 4/5: a root and its plural are the SAME concept — collapse them onto
+    one form (prefer the singular, else the most-used). Set-aware: only merges
+    forms that are BOTH present, so a concept seen only in plural is left intact."""
+    from collections import Counter
+    counts = Counter(mapping.values())
+    groups = {}
+    for r in counts:
+        groups.setdefault(_singular(r), []).append(r)
+    winner = {}
+    for key, forms in groups.items():
+        if len(forms) == 1:
+            winner[forms[0]] = forms[0]
+            continue
+        # prefer the exact-singular form, then the most-used, then the shortest
+        forms.sort(key=lambda f: (f != key, -counts[f], len(f)))
+        for f in forms:
+            winner[f] = forms[0]
+    return {k: winner.get(v, v) for k, v in mapping.items()}
+
+
 def _cap_roots(mapping, max_roots):
     """Fold the least-used roots into the single most-used one so the result never
     exceeds `max_roots` categories (rule: <=15 root categories total)."""
@@ -414,12 +448,12 @@ def assign_roots_ruled(keywords, custom_roots=None, max_roots=15):
             if missing:
                 mapping.update(_roots_heuristic(missing, custom))
             if mapping:
-                mapping = _cap_roots(mapping, max_roots)
+                mapping = _cap_roots(_merge_plurals(mapping), max_roots)
                 return {"map": mapping, "summary": _summary(mapping)}
         except CampaignAIError:
             pass
 
-    mapping = _cap_roots(_roots_heuristic(kws, custom), max_roots)
+    mapping = _cap_roots(_merge_plurals(_roots_heuristic(kws, custom)), max_roots)
     return {"map": mapping, "summary": _summary(mapping)}
 
 
