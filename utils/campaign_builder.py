@@ -288,8 +288,12 @@ def assemble(pid):
         root_map = res["map"]
         cdb.save_state(pid, "roots", {"map": root_map, "custom": custom_roots,
                                       "sig": sig, "n": len(kw_texts)})
+    # Collapse singular/plural root duplicates (burner/burners, supplement/
+    # supplements) — also fixes project maps cached before this rule existed,
+    # since it runs on every build regardless of the cache. Idempotent.
+    root_map = ai._merge_plurals(root_map or {})
     # Lower-cased lookup so the keyword text matches regardless of original casing.
-    rm_lower = {str(k).lower(): v for k, v in (root_map or {}).items()}
+    rm_lower = {str(k).lower(): v for k, v in root_map.items()}
 
     # ---- Semantics rows ----------------------------------------------------
     sem_rows = []
