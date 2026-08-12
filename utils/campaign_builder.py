@@ -53,8 +53,13 @@ PAT_EDITABLE = ["asin", "type", "product", "asp", "acos"]
 PAT_NUMERIC = {"asp", "acos"}
 
 
-def _apply_grid_edits(rows, edits, numeric_fields, skip_empty=None):
-    """Override row fields with the user's saved edits (keyed by row index).
+def _apply_grid_edits(rows, edits, numeric_fields, skip_empty=None, key_field=None):
+    """Override row fields with the user's saved edits.
+
+    Edits are addressed by a STABLE key (``key_field``, e.g. the keyword or ASIN)
+    when given, so re-uploading files / re-detecting sources / reordering rows can
+    never orphan hours of manual edits. Legacy blobs keyed by row index still
+    apply (fallback), so nothing saved before this change is lost.
 
     Additive: with no edits the rows are untouched. Numeric fields are coerced
     to float; blanks/invalid numbers are ignored so a bad cell never breaks build.
@@ -64,10 +69,18 @@ def _apply_grid_edits(rows, edits, numeric_fields, skip_empty=None):
     if not edits:
         return
     for i, row in enumerate(rows):
-        e = edits.get(str(i))
+        e = None
+        if key_field:                                   # stable-key match first
+            kv = str(row.get(key_field, "")).strip().lower()
+            if kv:
+                e = edits.get(kv)
+        if e is None:                                   # legacy index-keyed fallback
+            e = edits.get(str(i))
         if not isinstance(e, dict):
             continue
         for field, val in e.items():
+            if field == "__kw":                         # reserved identity marker
+                continue
             if field in numeric_fields:
                 try:
                     row[field] = float(str(val).replace(",", "").replace("%", "").strip())
@@ -325,7 +338,7 @@ def assemble(pid):
             "cpc": (str_metrics.get(kw.lower()) or {}).get("cpc", ""),
             "acos": (str_metrics.get(kw.lower()) or {}).get("acos", ""),
         })
-    _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC,
+    _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC, key_field="keyword",
                       skip_empty={"category"})
     # The editable sheet columns KW Vol. / Match / Broad KW List are stored as
     # disp_* aliases; map a non-empty manual entry onto the real build fields so

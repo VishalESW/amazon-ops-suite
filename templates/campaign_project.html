@@ -877,11 +877,25 @@ function cpEdit(kind,ri,field,val){ const g=GRIDS[kind];
   clearTimeout(_saveTimers[kind]);
   _saveTimers[kind]=setTimeout(()=>autoSaveGrid(kind), 700);
 }
+// Edits are held in-memory by row index for rendering, but SAVED keyed by a
+// stable identity (keyword / ASIN) so re-uploads or re-ordering can never orphan
+// hours of work. Grids without a keyField save index-keyed as before.
+function gridEditsPayload(g){
+  if(!g.keyField) return g.edits;
+  const out={};
+  for(const ri in g.edits){
+    const row=g.rows&&g.rows[ri]; if(!row) continue;
+    const key=String(row[g.keyField]==null?'':row[g.keyField]).trim().toLowerCase();
+    if(!key) continue;
+    out[key]=Object.assign({}, g.edits[ri], {__kw:key});
+  }
+  return out;
+}
 async function autoSaveGrid(kind){ const g=GRIDS[kind];
   if(!g || !g.dirty || !g.saveUrl) return;
   try{
     const r=await fetch(g.saveUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({edits:g.edits})}).then(r=>r.json());
+      body:JSON.stringify({edits:gridEditsPayload(g)})}).then(r=>r.json());
     if(r&&r.success){ g.dirty=false;
       const b=document.getElementById(kind+'SaveBtn'); if(b) b.textContent='Saved ✓'; }
   }catch(e){ /* stay dirty; retried on next edit / explicit Save / navigation */ }
@@ -1061,7 +1075,7 @@ async function saveGridEdits(kind){ const g=GRIDS[kind];
   const btn=document.getElementById(kind+'SaveBtn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
   try{
     const r=await fetch(g.saveUrl,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({edits:g.edits})}).then(r=>r.json());
+      body:JSON.stringify({edits:gridEditsPayload(g)})}).then(r=>r.json());
     if(r.success){ g.dirty=false; toast(`Saved ${r.count} edited row(s)`,'success'); }
     else toast(r.error||'Save failed','error');
   }catch(e){ toast('Network error','error'); }
@@ -1093,6 +1107,7 @@ function renderSemantics(){
     ],
     rows:ASM.semantics||[], edits:Object.assign({}, ASM.sem_edits||{}),
     saveUrl:`/campaign/projects/${PID}/semantics-edits`, dirty:false,
+    keyField:'keyword',   // save edits keyed by keyword, never by fragile row index
     asinChoices:(ASM.products||[]),
   };
   renderRootSummary();

@@ -1049,14 +1049,37 @@ def assemble_preview(pid):
     pat = [{"asin": t.get("asin", ""), "type": t.get("type", ""),
             "product": t.get("product", ""), "asp": t.get("asp", ""),
             "acos": t.get("acos", "")} for t in inp.pat_targets]
+    # Edits are stored keyed by a STABLE identity (keyword / ASIN) so re-uploads
+    # and re-ordering never orphan them. Re-key them to the CURRENT row index for
+    # the grid, matching by identity first and falling back to a legacy index key.
+    sem_edits = _edits_for_grid(cdb.get_state(pid, "semantics_edits") or {},
+                                semantics, "keyword")
+    pat_edits = _edits_for_grid(cdb.get_state(pid, "pat_edits") or {}, pat, "asin")
     return jsonify({"success": True, "meta": meta, "semantics": semantics,
                     "products": products,
                     "sem_columns": cb.SEM_EDITABLE, "pat_columns": cb.PAT_EDITABLE,
                     # Raw saved edit maps so the grid reseeds its full edit set and a
                     # later save re-sends everything (defensive against any overwrite).
-                    "sem_edits": cdb.get_state(pid, "semantics_edits") or {},
-                    "pat_edits": cdb.get_state(pid, "pat_edits") or {},
+                    "sem_edits": sem_edits,
+                    "pat_edits": pat_edits,
                     "campaigns": campaigns, "master": master, "pat": pat})
+
+
+def _edits_for_grid(stored, rows, key_field):
+    """Map a stored edit blob to {rowIndex: fields} for the grid. Identity-keyed
+    entries (keyword/ASIN) are placed on the row that currently holds that value;
+    legacy index-keyed entries pass through by position."""
+    if not stored:
+        return {}
+    out = {}
+    for i, row in enumerate(rows):
+        kv = str(row.get(key_field, "")).strip().lower()
+        e = (stored.get(kv) if kv else None)
+        if e is None:
+            e = stored.get(str(i))          # legacy index-keyed
+        if isinstance(e, dict):
+            out[str(i)] = {k: v for k, v in e.items() if k != "__kw"}
+    return out
 
 
 def _merge_edits(pid, key, incoming):
