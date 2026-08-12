@@ -55,47 +55,55 @@ SOURCE_TOKENS = {
     "str": ("search term", "spend", "acos"),
 }
 
-# Ordered list of (sheet-name-fragment, source) — first match wins.
-# More-specific fragments come before ambiguous ones (e.g. "brand analytics" before "brand").
-_SHEET_NAME_SOURCE = [
-    ("product opportunity explorer", "poe"),
-    ("niche", "poe"),
-    ("poe", "poe"),
-    ("brand analytics", "ba"),
-    ("brand_analytics", "ba"),
+# STRONG name fragments — unambiguous, checked before header-token detection.
+# Order matters (first match wins): the specific "brand analytics" / "brand h10"
+# must come before the bare "brand"/"h10" so e.g. a "Brand H10" file maps to the
+# Brand sheet, and "Brand Analytics - ASIN Filter" to the Brand Analytics sheet —
+# not to the generic Helium10 Reverse ASIN sheet.
+_NAME_SOURCE_STRONG = [
+    ("product opportunity explorer", "poe"), ("niche", "poe"),
+    ("brand analytics", "ba"), ("brand_analytics", "ba"), ("asin filter", "ba"),
+    ("brand h10", "brand"), ("brand (h10)", "brand"), ("brand-h10", "brand"),
+    ("brandh10", "brand"), ("brand helium", "brand"),
     ("search term report", "str"),
-    ("search query performance", "sqp"),
-    ("search query", "sqp"),
-    ("ba tst", "batst"),
-    ("batst", "batst"),
-    ("sqp", "sqp"),
-    ("h10 reverse", "h10"),
-    ("reverse asin", "h10"),
-    ("helium 10", "h10"),
-    ("h10", "h10"),
-    ("brand", "brand"),
-    ("str", "str"),
+    ("search query performance", "sqp"), ("search query", "sqp"),
+    ("ba tst", "batst"), ("batst", "batst"),
+    ("h10 reverse", "h10"), ("reverse asin", "h10"), ("helium 10", "h10"),
+    ("poe", "poe"), ("sqp", "sqp"),
+]
+# WEAK name fragments — ambiguous single words; only used AFTER header-token
+# detection fails, so tokens (which tell BA from H10-Brand apart) win first.
+_NAME_SOURCE_WEAK = [
+    ("h10", "h10"), ("brand", "brand"), ("str", "str"),
 ]
 
 
-def detect_source_from_sheet(sheet_name: str, raw_df: "pd.DataFrame") -> "str | None":
-    """Identify the source type of an Excel sheet by name then by header tokens."""
-    key = sheet_name.strip().lower()
-    for fragment, src in _SHEET_NAME_SOURCE:
+def detect_source_from_sheet(sheet_name, raw_df, filename=None):
+    """Identify the source type of an uploaded sheet. Strong name fragments (from
+    the sheet name AND the file name) win first, then header tokens, then weak
+    single-word fragments. Checking the filename lets a deliberately-named file
+    (e.g. 'Brand Analytics - ASIN Filter', 'Brand H10') route correctly even when
+    the internal tab name is generic."""
+    key = " ".join(str(x).strip().lower() for x in (sheet_name, filename) if x)
+    for fragment, src in _NAME_SOURCE_STRONG:
         if fragment in key:
             return src
-    if raw_df is None or raw_df.empty:
-        return None
-    best_src, best_score = None, 1  # require at least 2 matching tokens
-    n = min(35, len(raw_df))
-    for src, tokens in SOURCE_TOKENS.items():
-        for i in range(n):
-            cells = [str(x).strip().lower() for x in raw_df.iloc[i].tolist()]
-            score = sum(1 for t in tokens if any(t in c for c in cells))
-            if score > best_score:
-                best_score = score
-                best_src = src
-    return best_src
+    if raw_df is not None and not raw_df.empty:
+        best_src, best_score = None, 1  # require at least 2 matching tokens
+        n = min(35, len(raw_df))
+        for src, tokens in SOURCE_TOKENS.items():
+            for i in range(n):
+                cells = [str(x).strip().lower() for x in raw_df.iloc[i].tolist()]
+                score = sum(1 for t in tokens if any(t in c for c in cells))
+                if score > best_score:
+                    best_score = score
+                    best_src = src
+        if best_src:
+            return best_src
+    for fragment, src in _NAME_SOURCE_WEAK:
+        if fragment in key:
+            return src
+    return None
 
 
 def _apply_table_smart(full_df: "pd.DataFrame", source: str) -> "pd.DataFrame":

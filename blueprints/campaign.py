@@ -417,6 +417,11 @@ def upload_workbook(pid):
     sel_state = cdb.get_state(pid, "selections", {})
     added, summary = 0, []
 
+    # A single-sheet file is one source: let its FILE name drive detection (users
+    # name them deliberately, e.g. "Brand Analytics - ASIN Filter" / "Brand H10").
+    # A multi-sheet workbook routes per tab, so don't let the file name override.
+    detect_fname = fs.filename if len(sheet_iter) == 1 else None
+
     for sheet_name, pre_df in sheet_iter:
         if pre_df is not None:
             raw_df = pre_df
@@ -428,7 +433,7 @@ def upload_workbook(pid):
                                 "error": str(e)})
                 continue
 
-        source = orch.detect_source_from_sheet(sheet_name, raw_df)
+        source = orch.detect_source_from_sheet(sheet_name, raw_df, detect_fname)
         if not source:
             summary.append({"sheet": sheet_name, "source": None, "status": "unrecognized",
                             "rows": len(raw_df), "cols": len(raw_df.columns)})
