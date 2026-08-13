@@ -446,6 +446,7 @@ def _build_poe(ws, inp: BuildInput):
     lay = LAYOUTS[S_POE]
     _clear(ws, lay)
     r = lay.data_row
+    needs, seen = [], set()          # distinct Customer Needs, in first-seen order
     # POE data table cols B..O passthrough, P formula, Q passthrough.
     # poe_tables values are rows of [B,C,D,E,F,G,H,I,J,K,L,M,N,O] (+ optional Q at idx14)
     for product, rows in inp.poe_tables.items():
@@ -454,7 +455,21 @@ def _build_poe(ws, inp: BuildInput):
             _set(ws, "P", r, f"=ROUND(E{r}/12,0)")
             if len(row) > 14 and row[14] not in (None, ""):
                 _set(ws, "Q", r, row[14])
+            cn = str(row[0]).strip() if row else ""    # col B = Customer Need
+            if cn and cn.lower() not in seen:
+                seen.add(cn.lower())
+                needs.append(cn)
             r += 1
+    # Refill the top "Customer Need" summary list (B4..) that the sample-data strip
+    # blanks. Populated from the upload's distinct Customer Needs so the block isn't
+    # empty. This region is display-only (no formula references it), so the data
+    # table and its Search Terms are untouched.
+    sr, end = 4, lay.data_row - 4
+    for cn in needs:
+        if sr > end:
+            break
+        _set(ws, "B", sr, cn)
+        sr += 1
 
 
 def _build_h10(ws, inp: BuildInput):
