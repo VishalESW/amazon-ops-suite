@@ -135,15 +135,20 @@ def _sem_formulas(r, has_str, sqp_tabs):
         return "=" + _lk(f"{str_}!{col}:{col}", f"A{r}", f"{str_}!A:A", "0") \
             if has_str else STR_MISSING_NOTE
     # Conversion Rate priority: POE "Search Conversion Rate (360 days)" (POE!I by
-    # POE!C) -> Search Term Report "CVR" (STR!R by STR!A) -> H10 "ABA Total Conv.
-    # Share" (H10!C by H10!A). First source with a value > 0 wins; many exports leave
-    # POE/STR CVR blank, which otherwise leaves every bid at 0. Values may be % or
+    # POE!C) -> Search Term Report Orders/Clicks (computed) -> STR "CVR" column
+    # (STR!R) -> H10 "ABA Total Conv. Share" (H10!C by H10!A). First source with a
+    # value > 0 wins. Amazon STR exports frequently leave the CVR column blank while
+    # still carrying Orders (U) and Clicks (P), so we DERIVE CVR = Orders/Clicks
+    # from those instead of depending on the blank column. Values may be % or
     # fraction; normalize if > 1.
     poe_cvr = _lk(f"'{S_POE}'!I:I", f"A{r}", f"'{S_POE}'!C:C", "0")
     h10_cvr = _lk(f"'{S_H10}'!C:C", f"A{r}", f"'{S_H10}'!A:A", "0")
     sources = [poe_cvr]
     if has_str:
-        sources.append(_lk(f"{str_}!R:R", f"A{r}", f"{str_}!A:A", "0"))
+        str_orders = f"IFERROR(INDEX({str_}!U:U,MATCH(A{r},{str_}!A:A,0)),0)"
+        str_clicks = f"IFERROR(INDEX({str_}!P:P,MATCH(A{r},{str_}!A:A,0)),0)"
+        sources.append(f"IFERROR(({str_orders})/({str_clicks}),0)")   # Orders/Clicks
+        sources.append(_lk(f"{str_}!R:R", f"A{r}", f"{str_}!A:A", "0"))  # direct CVR col
     sources.append(h10_cvr)
     # Nest into IF(src1>0, src1, IF(src2>0, src2, src3)) — first positive wins.
     raw = f"({sources[-1]})"
