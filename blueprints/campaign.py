@@ -417,10 +417,12 @@ def upload_workbook(pid):
     sel_state = cdb.get_state(pid, "selections", {})
     added, summary = 0, []
 
-    # A single-sheet file is one source: let its FILE name drive detection (users
-    # name them deliberately, e.g. "Brand Analytics - ASIN Filter" / "Brand H10").
-    # A multi-sheet workbook routes per tab, so don't let the file name override.
-    detect_fname = fs.filename if len(sheet_iter) == 1 else None
+    # Each uploaded file is one source the user named deliberately ("Brand H10",
+    # "Brand Analytics - ASIN Filter"), so its FILE name drives detection for every
+    # sheet in it — the only reliable way to tell Brand-H10 from Reverse-ASIN, whose
+    # header tokens are identical. A strong file-name match wins; otherwise each
+    # sheet falls back to its own name/tokens (genuine combined workbooks still work).
+    detect_fname = fs.filename
 
     for sheet_name, pre_df in sheet_iter:
         if pre_df is not None:

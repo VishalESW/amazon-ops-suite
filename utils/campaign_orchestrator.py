@@ -78,17 +78,34 @@ _NAME_SOURCE_WEAK = [
 ]
 
 
-def detect_source_from_sheet(sheet_name, raw_df, filename=None):
-    """Identify the source type of an uploaded sheet. Strong name fragments (from
-    the sheet name AND the file name) win first, then header tokens, then weak
-    single-word fragments. Checking the filename lets a deliberately-named file
-    (e.g. 'Brand Analytics - ASIN Filter', 'Brand H10') route correctly even when
-    the internal tab name is generic."""
-    key = " ".join(str(x).strip().lower() for x in (sheet_name, filename) if x)
+def source_from_name(name):
+    """Source implied by a STRONG, specific name fragment, or None. Used to route a
+    whole uploaded file by its (deliberately chosen) file name."""
+    k = str(name or "").strip().lower()
     for fragment, src in _NAME_SOURCE_STRONG:
-        if fragment in key:
+        if fragment in k:
             return src
-    if raw_df is not None and not raw_df.empty:
+    return None
+
+
+def detect_source_from_sheet(sheet_name, raw_df, filename=None):
+    """Identify the source type of an uploaded sheet.
+
+    Priority: (1) a STRONG fragment in the FILE name — users name each file for one
+    source, so this is the authority and disambiguates cases header tokens cannot
+    (Brand-H10 vs Reverse-ASIN share identical tokens); (2) a strong fragment in the
+    sheet/tab name; (3) header tokens; (4) weak single-word fragments. This keeps
+    'Brand H10' -> Brand sheet and 'Brand Analytics - ASIN Filter' -> Brand Analytics
+    sheet regardless of how many tabs the export has or how they're named."""
+    fk = str(filename or "").strip().lower()
+    for fragment, src in _NAME_SOURCE_STRONG:      # 1. file name (authoritative)
+        if fragment in fk:
+            return src
+    sk = str(sheet_name or "").strip().lower()
+    for fragment, src in _NAME_SOURCE_STRONG:      # 2. sheet/tab name
+        if fragment in sk:
+            return src
+    if raw_df is not None and not raw_df.empty:    # 3. header tokens
         best_src, best_score = None, 1  # require at least 2 matching tokens
         n = min(35, len(raw_df))
         for src, tokens in SOURCE_TOKENS.items():
@@ -100,8 +117,8 @@ def detect_source_from_sheet(sheet_name, raw_df, filename=None):
                     best_src = src
         if best_src:
             return best_src
-    for fragment, src in _NAME_SOURCE_WEAK:
-        if fragment in key:
+    for fragment, src in _NAME_SOURCE_WEAK:        # 4. weak single words
+        if fragment in fk or fragment in sk:
             return src
     return None
 
