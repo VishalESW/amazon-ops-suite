@@ -522,6 +522,60 @@ def delete_upload(pid, filekey):
     return jsonify({"success": True, "uploads": uploads})
 
 
+# Sources a user can manually assign an upload to (keys of GRID_LABELS).
+UPLOAD_SOURCES = set(GRID_LABELS)
+
+
+@bp.route("/projects/<pid>/uploads/<filekey>/source", methods=["POST"])
+def set_upload_source(pid, filekey):
+    """Manually (re)assign an uploaded file to a source, overriding auto-detection.
+    Re-parses the SAME stored raw file with the chosen source and updates the
+    upload record + its column-A selection. Nothing else is touched — the build
+    already routes each upload to its sheet purely by u['source']."""
+    if not cdb.get_project(pid):
+        abort(404)
+    new_src = (request.get_json(silent=True) or {}).get("source", "")
+    if new_src not in UPLOAD_SOURCES:
+        return jsonify({"success": False, "error": "Unknown source"}), 400
+    uploads = cdb.get_state(pid, "uploads", [])
+    up = next((u for u in uploads if u.get("filekey") == filekey), None)
+    if not up:
+        return jsonify({"success": False, "error": "Upload not found"}), 404
+    if up.get("source") == new_src:
+        return jsonify({"success": True, "uploads": uploads})   # no-op
+    path = cstore.raw_path(pid, filekey)
+    if not path or not os.path.exists(path):
+        return jsonify({"success": False, "error": "Stored file missing"}), 404
+    try:
+        if path.lower().endswith(".csv"):
+            with open(path, "rb") as f:
+                raw_df = _read_csv_raw(f.read())
+        else:
+            raw_df = pd.read_excel(path, header=None, dtype=object).fillna("")
+        grid = orch.parse_upload(None, new_src, raw_df=raw_df)
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"Could not re-read as that type: {e}"}), 400
+    cstore.save_parsed(pid, filekey, grid)
+    up["source"] = new_src
+    up["field"] = new_src
+    up["label"] = _label_for(new_src, up.get("filename", ""))
+    up["keyword_col"] = grid["keyword_col"]
+    up["asin_cols"] = grid["asin_cols"]
+    up["has_grid"] = grid["keyword_col"] is not None
+    # Re-seed the column-A selection for the re-parsed grid (row layout may change).
+    sel_state = cdb.get_state(pid, "selections", {})
+    auto_sel = _col0_selections(grid)
+    if auto_sel:
+        sel_state[filekey] = auto_sel
+    else:
+        sel_state.pop(filekey, None)
+    cdb.save_state(pid, "selections", sel_state)
+    up["selected"] = len(auto_sel)
+    cdb.save_state(pid, "uploads", uploads)
+    return jsonify({"success": True, "uploads": uploads})
+
+
 @bp.route("/projects/<pid>/table/<filekey>")
 def get_table(pid, filekey):
     if not cdb.get_project(pid):
