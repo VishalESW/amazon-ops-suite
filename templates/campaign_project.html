@@ -515,18 +515,32 @@ function renderUploads(uploads){
   const host=document.getElementById('upList');
   if(!host) return;
   if(!uploads||!uploads.length){ host.innerHTML='<p class="text-sm text-muted-foreground">None yet.</p>'; return; }
+  const opts=Object.entries(SOURCE_LABELS).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
   host.innerHTML=uploads.map(u=>`
     <div class="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
-      <div class="min-w-0">
-        <span class="cp-badge mr-2">${esc(SOURCE_LABELS[u.source]||u.source)}</span>
-        <span class="text-sm font-medium">${esc(u.label)}</span>
-        <span class="text-xs text-muted-foreground">· ${esc(u.filename)} · ${u.rowcount} rows${u.selected?` · <span class="text-success">${u.selected} pre-selected</span>`:''}</span>
+      <div class="min-w-0 flex items-center gap-2">
+        <select title="Assign this file to a sheet" onchange="setUploadSource('${u.filekey}', this.value)"
+          class="rounded-md border border-input bg-background px-2 py-1 text-xs font-medium shrink-0">${opts}</select>
+        <span class="min-w-0">
+          <span class="text-sm font-medium">${esc(u.label)}</span>
+          <span class="text-xs text-muted-foreground">· ${esc(u.filename)} · ${u.rowcount} rows${u.selected?` · <span class="text-success">${u.selected} pre-selected</span>`:''}</span>
+        </span>
       </div>
       <div class="flex items-center gap-3 shrink-0">
         <a href="/campaign/projects/${PID}/uploads/${u.filekey}/download" class="text-xs text-primary hover:underline">Download</a>
         <button onclick="delUpload('${u.filekey}')" class="text-xs text-danger hover:underline">Remove</button>
       </div>
     </div>`).join('');
+  // Set each dropdown to its current source (value set post-render so esc() stays simple).
+  host.querySelectorAll('select').forEach((sel,i)=>{ sel.value=uploads[i].source; });
+}
+async function setUploadSource(filekey, source){
+  try{
+    const r=await fetch(`/campaign/projects/${PID}/uploads/${filekey}/source`,{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({source})}).then(r=>r.json());
+    if(r.success){ renderUploads(r.uploads); toast('Assigned to '+(SOURCE_LABELS[source]||source),'success'); }
+    else toast(r.error||'Could not assign','error');
+  }catch(e){ toast('Network error','error'); }
 }
 async function delUpload(filekey){
   try{ const r=await fetch(`/campaign/projects/${PID}/uploads/${filekey}/delete`,{method:'POST'}).then(r=>r.json());
