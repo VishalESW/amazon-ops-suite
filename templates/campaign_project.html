@@ -1198,23 +1198,30 @@ function renderBuild(){
 }
 async function doBuild(){
   const btn=document.getElementById('buildBtn'); btn.disabled=true; btn.textContent='Building…';
-  document.getElementById('buildMsg').textContent='Generating workbook with live formulas…';
+  const msg=document.getElementById('buildMsg'); msg.textContent='Starting build…';
   try{
-    const res=await fetch(`/campaign/projects/${PID}/build`,{method:'POST'});
-    let r=null; try{ r=await res.json(); }catch(_){ r=null; }   // guard against HTML (timeout/error page)
-    if(!r){
-      toast((res.status===502||res.status===504)
-        ? 'Build timed out on the server — the workbook is large. Try again; if it repeats, tell the admin.'
-        : `Build failed (HTTP ${res.status}). Check the server logs.`, 'error');
-    } else if(r.success){
-      document.getElementById('buildDl').href=r.download;
-      document.getElementById('buildMeta').textContent=
-        `${r.meta.semantics} Semantics · ${r.meta.campaigns} campaigns · ${r.meta.pat_targets} PAT · CVR from ${r.meta.cvr_source}`;
-      document.getElementById('buildResult').classList.remove('hidden');
-      toast('Workbook generated','success');
-    } else { toast(r.error||'Build failed','error'); }
+    // Kick off a background job — the request returns instantly, so a long build
+    // (large workbook / first-run AI passes) never trips the gateway 524 timeout.
+    const start=await fetch(`/campaign/projects/${PID}/build`,{method:'POST'}).then(r=>r.json()).catch(()=>null);
+    if(!start||!start.success||!start.job_id){ toast((start&&start.error)||'Build failed to start','error'); return; }
+    const jid=start.job_id; let done=false;
+    for(let i=0;i<400 && !done;i++){                 // ~10 min ceiling at 1.5s
+      await new Promise(r=>setTimeout(r,1500));
+      const s=await fetch(`/campaign/projects/${PID}/build/${jid}`).then(r=>r.json()).catch(()=>null);
+      if(!s) continue;                                // transient network blip; keep polling
+      if(s.state==='done'){
+        done=true;
+        document.getElementById('buildDl').href=s.download;
+        document.getElementById('buildMeta').textContent=
+          `${s.meta.semantics} Semantics · ${s.meta.campaigns} campaigns · ${s.meta.pat_targets} PAT · CVR from ${s.meta.cvr_source}`;
+        document.getElementById('buildResult').classList.remove('hidden');
+        toast('Workbook generated','success');
+      } else if(s.state==='error'){ done=true; toast(s.error||'Build failed','error'); }
+      else { msg.textContent=s.message||'Building workbook with live formulas…'; }
+    }
+    if(!done) toast('Build is taking unusually long — check back shortly.','error');
   }catch(e){ toast('Network error: '+(e.message||e),'error'); }
-  finally{ btn.disabled=false; btn.textContent='Generate planning workbook'; document.getElementById('buildMsg').textContent=''; }
+  finally{ btn.disabled=false; btn.textContent='Generate planning workbook'; msg.textContent=''; }
 }
 
 async function doUploadEdited(input){
