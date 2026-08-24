@@ -1214,12 +1214,14 @@ def build_workbook(pid):
     out_path = os.path.join(cfg.OUTPUT_FOLDER, filename)
     try:
         _, meta = cb.build_from_project(pid, out_path)
+        cdb.update_project(pid, status=cdb.STATUS_COMPLETED, current_step="build")
+        from utils.jsonutil import convert_numpy
+        return jsonify(convert_numpy({
+            "success": True, "filename": filename, "meta": meta,
+            "download": url_for("download_file", filename=filename)}))
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-    cdb.update_project(pid, status=cdb.STATUS_COMPLETED, current_step="build")
-    return jsonify({"success": True, "filename": filename, "meta": meta,
-                    "download": url_for("download_file", filename=filename)})
 
 
 @bp.route("/projects/<pid>/bulksheet", methods=["POST"])

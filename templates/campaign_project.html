@@ -1200,8 +1200,13 @@ async function doBuild(){
   const btn=document.getElementById('buildBtn'); btn.disabled=true; btn.textContent='Building…';
   document.getElementById('buildMsg').textContent='Generating workbook with live formulas…';
   try{
-    const r=await fetch(`/campaign/projects/${PID}/build`,{method:'POST'}).then(r=>r.json());
-    if(r.success){
+    const res=await fetch(`/campaign/projects/${PID}/build`,{method:'POST'});
+    let r=null; try{ r=await res.json(); }catch(_){ r=null; }   // guard against HTML (timeout/error page)
+    if(!r){
+      toast((res.status===502||res.status===504)
+        ? 'Build timed out on the server — the workbook is large. Try again; if it repeats, tell the admin.'
+        : `Build failed (HTTP ${res.status}). Check the server logs.`, 'error');
+    } else if(r.success){
       document.getElementById('buildDl').href=r.download;
       document.getElementById('buildMeta').textContent=
         `${r.meta.semantics} Semantics · ${r.meta.campaigns} campaigns · ${r.meta.pat_targets} PAT · CVR from ${r.meta.cvr_source}`;
