@@ -734,13 +734,19 @@ def _prepare_ba_tabs(wb, ba_tst: dict):
 
 
 def _reset_ba_tab(ws, word):
-    """Wipe a template BA TST tab of all sample content before it is reused for a
-    new word. `_clear` alone is not enough: sample data ran past the managed
-    columns, and the control panel (rows 1..8) carries the old filter word — both
-    would otherwise leak the sample project's identity."""
-    # Data rows, FULL width (sample data extended past the managed last column).
-    end = min(BA_LAYOUT.clear_to, ws.max_row)
-    for r in range(BA_LAYOUT.data_row, end + 1):
+    """Wipe a template BA TST tab of all content before it is reused for a new
+    word. The control panel (rows 1..8) carries the old filter word, and any prior
+    data rows must go (a clone carries the previous word's data).
+
+    Clears only the rows that ACTUALLY hold data, found from the sheet's real
+    cells — NOT ws.max_row, which the template inflates with thousands of empty
+    styled rows (up to ~6000). Iterating that phantom range materialised ~180k
+    empty cells per tab and made the whole build take ~50s (HTTP 524)."""
+    # Real last content row in the data region (ignore the inflated empty dimension).
+    data_rows = [coord[0] for coord, cell in ws._cells.items()
+                 if coord[0] >= BA_LAYOUT.data_row and cell.value not in (None, "")]
+    last = max(data_rows) if data_rows else BA_LAYOUT.data_row - 1
+    for r in range(BA_LAYOUT.data_row, last + 1):
         for c in range(1, ws.max_column + 1):
             _put(ws, r, c, None)
     # Control panel: retarget the filter-word cells to this project's word.
