@@ -432,9 +432,20 @@ def assemble(pid):
     # Brand-column names cover only the files that HAVE a brand column; a Search
     # Term Report has none, so mine the competitor search terms themselves for
     # the rest ("zymox ear wipes" -> Zymox). Column-derived names rank first.
-    inp.competitor_kws = ai.extract_brands(comp_searches,
-                                           known=list(dict.fromkeys(comp_names)),
-                                           own_brand=brand)
+    # This runs an AI call, so cache it by the competitor-search set (like the
+    # root map). Without the cache every preview AND every build re-ran the model
+    # on hundreds of terms, and two uncached AI calls per build tripped the
+    # gateway's ~100s timeout (HTTP 524). Recomputed only when the set changes.
+    _known = list(dict.fromkeys(comp_names))
+    _bsig = hashlib.md5(
+        ("\n".join(sorted(s.lower() for s in comp_searches)) + "||" +
+         "\n".join(_known) + "||" + str(brand)).encode("utf-8")).hexdigest()
+    _bcache = state.get("comp_brands") or {}
+    if _bcache.get("sig") == _bsig and isinstance(_bcache.get("list"), list):
+        inp.competitor_kws = _bcache["list"]
+    else:
+        inp.competitor_kws = ai.extract_brands(comp_searches, known=_known, own_brand=brand)
+        cdb.save_state(pid, "comp_brands", {"sig": _bsig, "list": inp.competitor_kws})
     inp.own_branded_searches = own_searches
     inp.own_branded_kws = list(dict.fromkeys(own_names)) or [brand]
     inp.own_brand_asins = [a for a in selected_asins]

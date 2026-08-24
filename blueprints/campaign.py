@@ -26,6 +26,7 @@ from utils import campaign_db as cdb
 from utils import campaign_adlabs as cadl
 from utils import campaign_store as cstore
 from utils import campaign_orchestrator as orch
+from utils import jobs
 from utils.campaign_ai import available as ai_available
 
 bp = Blueprint("campaign", __name__, url_prefix="/campaign")
@@ -1204,24 +1205,46 @@ def save_pat_edits(pid):
 
 @bp.route("/projects/<pid>/build", methods=["POST"])
 def build_workbook(pid):
+    """Start the workbook build in a background thread and return a job_id. The
+    build can take longer than the gateway's ~100s limit (large workbooks, AI
+    root/brand passes on first run), which returned HTTP 524; running it as a job
+    keeps the request instant and the frontend polls /build/<job_id> for the file."""
     p = cdb.get_project(pid)
     if not p:
         abort(404)
     from utils import campaign_builder as cb
+    from utils.jsonutil import convert_numpy
     import time as _t
     safe = "".join(ch if ch.isalnum() else "_" for ch in (p.get("name") or "Campaign")).strip("_") or "Campaign"
     filename = f"Campaigns_{safe}_{_t.strftime('%Y%m%d-%H%M%S')}.xlsx"
     out_path = os.path.join(cfg.OUTPUT_FOLDER, filename)
-    try:
+    download = url_for("download_file", filename=filename)   # build in request ctx
+
+    def work(progress):
+        progress("Assembling project data…")
         _, meta = cb.build_from_project(pid, out_path)
         cdb.update_project(pid, status=cdb.STATUS_COMPLETED, current_step="build")
-        from utils.jsonutil import convert_numpy
-        return jsonify(convert_numpy({
-            "success": True, "filename": filename, "meta": meta,
-            "download": url_for("download_file", filename=filename)}))
-    except Exception as e:  # noqa: BLE001
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+        return convert_numpy({"filename": filename, "meta": meta, "download": download})
+
+    return jsonify({"success": True, "job_id": jobs.start(work)})
+
+
+@bp.route("/projects/<pid>/build/<job_id>")
+def build_workbook_status(pid, job_id):
+    """Poll a background build. Returns state running/done/error; on done, the
+    filename/meta/download of the finished workbook."""
+    if not cdb.get_project(pid):
+        abort(404)
+    s = jobs.public_status(job_id)
+    if not s:
+        return jsonify({"success": False, "state": "error", "error": "Unknown job"}), 404
+    if s.get("state") == "done":
+        job = jobs.get(job_id) or {}
+        return jsonify({"success": True, "state": "done", **(job.get("result") or {})})
+    if s.get("state") == "error":
+        return jsonify({"success": False, "state": "error",
+                        "error": s.get("message") or "Build failed"})
+    return jsonify({"success": True, "state": "running", "message": s.get("message")})
 
 
 @bp.route("/projects/<pid>/bulksheet", methods=["POST"])
