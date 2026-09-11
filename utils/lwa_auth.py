@@ -139,7 +139,18 @@ def get_access_token(refresh_token: str, scope: str | None = None,
         data["scope"] = scope
     resp = requests.post(cfg.LWA_TOKEN_URL, data=data, timeout=30)
     if resp.status_code >= 400:
-        raise RuntimeError(f"LWA refresh-token exchange {resp.status_code}: {resp.text}")
+        # invalid_client -> the client_id/secret don't authenticate. Show which
+        # client was used (masked) + whether a secret was present, so a wrong or
+        # rotated LWA credential is obvious without leaking the secret.
+        cid = client_id or ""
+        fp = f"{cid[:14]}…{cid[-6:]}" if len(cid) > 20 else (cid or "(empty)")
+        raise RuntimeError(
+            f"LWA refresh-token exchange {resp.status_code}: {resp.text} "
+            f"[client_id={fp} len={len(cid)}, secret={'set' if client_secret else 'MISSING'}]. "
+            f"invalid_client means this client_id/secret is wrong, rotated, or not the "
+            f"LWA client that issued the seller's refresh token — update SPAPI_CLIENT_ID/"
+            f"SPAPI_CLIENT_SECRET to the SP-API app's LWA credentials."
+        )
     payload = resp.json()
     access_token = payload["access_token"]
     expires_in = int(payload.get("expires_in", 3600))
