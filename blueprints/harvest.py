@@ -107,7 +107,6 @@ def analyze():
         min_clicks=body.get("min_clicks", 5), min_orders=body.get("min_orders", 2),
         max_acos=body.get("max_acos", 0.30), lookback_days=body.get("lookback_days", 60),
         target_acos_default=target_acos,
-        expansion_stage_enabled=body.get("expansion_stage_enabled", True),
         max_new_campaigns_per_run=body.get("max_new_campaigns_per_run", 50),
         own_brand_tokens=body.get("own_brand_tokens") or [],
         competitor_brand_tokens=body.get("competitor_brand_tokens") or [],
@@ -164,12 +163,18 @@ def analyze():
                 if rt:
                     endpoint, mkt, *_ = spapi_client.resolve_endpoint_and_marketplace(rt)
                     client = spapi_client.SpApiClient(rt, endpoint=endpoint, marketplace_id=mkt)
-                    # Scope SQP to the selected ASINs when set, else the whole profile.
+                    # Scope SQP to the selected ASINs when set, else the whole profile,
+                    # and order by sales so the most important products come first.
                     scope = {a.strip().lower() for a in selected_asins if str(a).strip()}
-                    asins = [p["asin"] for p in ap_map.values() if p.get("asin")
-                             and (not scope or p["asin"].lower() in scope)]
-                    asins = list(dict.fromkeys(asins))
-                    sqp_rows = client.fetch_sqp(asins[:20])   # cap ASIN fan-out per run
+                    cand = [a for a in asin_econ.values() if a.get("asin")
+                            and (not scope or a["asin"].lower() in scope)]
+                    cand.sort(key=lambda x: (x.get("sales", 0), x.get("orders", 0)), reverse=True)
+                    asins = list(dict.fromkeys(a["asin"] for a in cand))
+                    # Each ASIN = 8 weekly reports; Amazon's create-report burst is ~15,
+                    # so keep the fan-out small (cap ~2 ASINs) to stay fast. Scope to
+                    # specific ASINs in the UI for more products without the throttle.
+                    progress(f"Pulling SQP for {min(len(asins), 2)} product(s)…")
+                    sqp_rows = client.fetch_sqp(asins[:2])
                     sqp_index, sqp_opps = kh.build_sqp_index(sqp_rows)
             except Exception as e:  # noqa: BLE001 — SQP is prioritization-only; never fail the run
                 progress(f"SQP skipped: {e}")

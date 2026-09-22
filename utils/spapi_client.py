@@ -282,8 +282,11 @@ class SpApiClient:
          a missing/late report never breaks the harvest run.
 
         Amazon SQP WEEK reports must span *exactly one* Sun–Sat reporting period, so
-        we request one report per (ASIN, week) and combine them. `max_reports` caps
-        the total fan-out (asins × weeks) so a big ASIN set can't stall the run."""
+        we request one report per (ASIN, week). To stay fast, ALL reports are
+        created up front and then polled together — Amazon generates them in
+        parallel, instead of us waiting out a full create→poll→download cycle for
+        each one in turn (which made a multi-ASIN run take many minutes).
+        `max_reports` caps the total fan-out (asins × weeks)."""
         # Amazon SQP weeks are Sun–Sat and require dataStartTime to be a Sunday.
         # Anchor on the most recent completed Saturday (weekday 5).
         last_sat = datetime.now(timezone.utc).date() - timedelta(days=2)
@@ -294,28 +297,65 @@ class SpApiClient:
             sat = last_sat - timedelta(days=7 * i)
             week_spans.append((sat - timedelta(days=6), sat))
 
-        rows, issued = [], 0
+        # 1) Build the (ASIN, week) task list, capped.
+        tasks = []
         for asin in [a for a in dict.fromkeys(asins) if a]:
             for sun, sat in week_spans:
-                if issued >= max_reports:
-                    return rows
-                issued += 1
+                if len(tasks) >= max_reports:
+                    break
+                tasks.append({"asin": asin, "sun": sun, "sat": sat})
+            if len(tasks) >= max_reports:
+                break
+
+        # 2) Create every report up front (create_report already backs off on 429).
+        pending = []
+        for t in tasks:
+            try:
+                t["report_id"] = self.create_report(
+                    RT_SQP,
+                    data_start=f"{t['sun'].isoformat()}T00:00:00Z",
+                    data_end=f"{t['sat'].isoformat()}T00:00:00Z",
+                    report_options={"reportPeriod": "WEEK", "asin": t["asin"]},
+                )
+                pending.append(t)
+            except SpApiError:
+                continue
+
+        # 3) Poll them all together until each is terminal (parallel generation).
+        done, deadline = [], time.time() + 900
+        while pending and time.time() < deadline:
+            still = []
+            for t in pending:
                 try:
-                    text = self.run_report(
-                        RT_SQP,
-                        data_start=f"{sun.isoformat()}T00:00:00Z",
-                        data_end=f"{sat.isoformat()}T00:00:00Z",
-                        report_options={"reportPeriod": "WEEK", "asin": asin},
-                    )
-                    for r in parse_sqp(text):
-                        # Guarantee week bounds even if the report omits them.
-                        r.setdefault("week_start", sun.isoformat())
-                        r.setdefault("week_end", sat.isoformat())
-                        r["week_start"] = r.get("week_start") or sun.isoformat()
-                        r["week_end"] = r.get("week_end") or sat.isoformat()
-                        rows.append(r)
+                    info = self.get_report(t["report_id"])
                 except SpApiError:
-                    continue
+                    continue  # transient — drop this one
+                status = info.get("processingStatus")
+                if status in _TERMINAL_OK:
+                    t["doc"] = info.get("reportDocumentId")
+                    done.append(t)
+                elif status in _TERMINAL_BAD:
+                    continue  # FATAL/CANCELLED — skip
+                else:
+                    still.append(t)
+            pending = still
+            if pending:
+                time.sleep(5)
+
+        # 4) Download + parse the finished reports.
+        rows = []
+        for t in done:
+            if not t.get("doc"):
+                continue
+            try:
+                text = self.download_document(t["doc"])
+            except Exception:  # noqa: BLE001 — one bad doc must not sink the batch
+                continue
+            for r in parse_sqp(text):
+                # Guarantee week bounds even if the report omits them.
+                r["week_start"] = r.get("week_start") or t["sun"].isoformat()
+                r["week_end"] = r.get("week_end") or t["sat"].isoformat()
+                rows.append(r)
         return rows
 
     def fetch_sales_traffic(self, days):
