@@ -273,29 +273,49 @@ class SpApiClient:
         text = self.run_report(report_type)
         return parse_tsv(text)
 
-    def fetch_sqp(self, asins, weeks=8):
+    def fetch_sqp(self, asins, weeks=8, max_reports=40):
         """Brand Analytics Search Query Performance, weekly, per ASIN, over the last
         `weeks` full weeks (spec: last 4 wk + prior 4 wk). Returns flat rows:
         {asin, week_start, week_end, search_query, search_query_volume,
          asin_impression_share, asin_click_share, asin_cart_add_share,
          asin_purchase_share, asin_purchase_count}. Degrades to [] on any failure so
-         a missing/late report never breaks the harvest run."""
-        end = datetime.now(timezone.utc).date() - timedelta(days=2)
-        # align end to the last completed Saturday (Amazon SQP weeks are Sun–Sat)
-        end -= timedelta(days=(end.weekday() + 1) % 7 or 7)  # back up to a Saturday
-        start = end - timedelta(days=weeks * 7 - 1)
-        rows = []
+         a missing/late report never breaks the harvest run.
+
+        Amazon SQP WEEK reports must span *exactly one* Sun–Sat reporting period, so
+        we request one report per (ASIN, week) and combine them. `max_reports` caps
+        the total fan-out (asins × weeks) so a big ASIN set can't stall the run."""
+        # Amazon SQP weeks are Sun–Sat and require dataStartTime to be a Sunday.
+        # Anchor on the most recent completed Saturday (weekday 5).
+        last_sat = datetime.now(timezone.utc).date() - timedelta(days=2)
+        last_sat -= timedelta(days=(last_sat.weekday() - 5) % 7)
+        # Build the list of full weeks, most recent first: (sunday, saturday).
+        week_spans = []
+        for i in range(weeks):
+            sat = last_sat - timedelta(days=7 * i)
+            week_spans.append((sat - timedelta(days=6), sat))
+
+        rows, issued = [], 0
         for asin in [a for a in dict.fromkeys(asins) if a]:
-            try:
-                text = self.run_report(
-                    RT_SQP,
-                    data_start=f"{start.isoformat()}T00:00:00Z",
-                    data_end=f"{end.isoformat()}T00:00:00Z",
-                    report_options={"reportPeriod": "WEEK", "asin": asin},
-                )
-                rows.extend(parse_sqp(text))
-            except SpApiError:
-                continue
+            for sun, sat in week_spans:
+                if issued >= max_reports:
+                    return rows
+                issued += 1
+                try:
+                    text = self.run_report(
+                        RT_SQP,
+                        data_start=f"{sun.isoformat()}T00:00:00Z",
+                        data_end=f"{sat.isoformat()}T00:00:00Z",
+                        report_options={"reportPeriod": "WEEK", "asin": asin},
+                    )
+                    for r in parse_sqp(text):
+                        # Guarantee week bounds even if the report omits them.
+                        r.setdefault("week_start", sun.isoformat())
+                        r.setdefault("week_end", sat.isoformat())
+                        r["week_start"] = r.get("week_start") or sun.isoformat()
+                        r["week_end"] = r.get("week_end") or sat.isoformat()
+                        rows.append(r)
+                except SpApiError:
+                    continue
         return rows
 
     def fetch_sales_traffic(self, days):
