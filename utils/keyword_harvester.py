@@ -69,7 +69,6 @@ class HarvestConfig:
         self.bid_min = float(kw.get("bid_min", 0.10))
         self.bid_max_multiplier = float(kw.get("bid_max_multiplier", 1.50))
         self.high_price_pt_threshold = float(kw.get("high_price_pt_threshold", 1.25))
-        self.expansion_stage_enabled = bool(kw.get("expansion_stage_enabled", True))
         self.max_new_campaigns_per_run = int(kw.get("max_new_campaigns_per_run", 50))
         self.daily_budget = float(kw.get("daily_budget", 5))
         self.tos_bid = int(kw.get("tos_bid", 25))
@@ -351,11 +350,6 @@ def _artifacts(plan, kept_ids, cfg):
     create = []
     for (product, root), members in groups.items():
         create.append(_mkw_group_row(product, root, members, cfg, "Ex.", "Rank"))
-        # Expansion (opt-in, spec §9): also seed the root as Phrase and Broad-Mod
-        # themed campaigns to keep discovering variants of a proven root.
-        if cfg.expansion_stage_enabled:
-            create.append(_mkw_group_row(product, root, members, cfg, "Ph.", "Reach"))
-            create.append(_mkw_group_row(product, root, members, cfg, "Br.M", "Reach"))
     return create, targets, negatives
 
 

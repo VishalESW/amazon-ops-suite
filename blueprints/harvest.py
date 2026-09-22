@@ -107,7 +107,6 @@ def analyze():
         min_clicks=body.get("min_clicks", 5), min_orders=body.get("min_orders", 2),
         max_acos=body.get("max_acos", 0.30), lookback_days=body.get("lookback_days", 60),
         target_acos_default=target_acos,
-        expansion_stage_enabled=body.get("expansion_stage_enabled", True),
         max_new_campaigns_per_run=body.get("max_new_campaigns_per_run", 50),
         own_brand_tokens=body.get("own_brand_tokens") or [],
         competitor_brand_tokens=body.get("competitor_brand_tokens") or [],

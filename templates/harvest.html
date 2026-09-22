@@ -61,7 +61,6 @@
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Own-brand tokens <span class="text-muted-foreground/70">(comma-sep)</span></label><input id="ownBrand" placeholder="e.g. be right golf" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"></div>
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Competitor tokens <span class="text-muted-foreground/70">(comma-sep)</span></label><input id="compBrand" placeholder="e.g. whoosh" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"></div>
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Max new campaigns / run</label><input id="maxNew" type="number" min="1" step="1" value="50" class="stepper"></div>
-    <div class="flex items-end"><label class="inline-flex items-center gap-2 text-sm"><input id="expansion" type="checkbox" class="accent-emerald"> Expansion (add Phrase + Broad-Mod)</label></div>
   </div>
 
   <div class="mt-4 flex items-center gap-3">
@@ -222,8 +221,7 @@ async function runHarvest(){
     asins:[...selectedAsins],
     target_acos:(+document.getElementById('targetAcos').value||20)/100,
     own_brand_tokens:tokens('ownBrand'), competitor_brand_tokens:tokens('compBrand'),
-    max_new_campaigns_per_run:+document.getElementById('maxNew').value||50,
-    expansion_stage_enabled:document.getElementById('expansion').checked };
+    max_new_campaigns_per_run:+document.getElementById('maxNew').value||50 };
   document.getElementById('runBtn').disabled=true; showProg(true); setMsg('Starting…');
   ['statsCard','dlCard','resultsCard'].forEach(id=>document.getElementById(id).classList.add('hidden'));
   let res; try{ res=await fetch('/harvest/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json()); }
