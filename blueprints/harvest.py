@@ -1,57 +1,28 @@
-"""Keyword Harvesting section — powered by AdLabs.
+"""Keyword Harvesting section (Module 4) — the ASIN-level graduate/negate funnel.
 
-Step 1 (Harvest & Negate): pull search-term + SQP data, split into keywords worth
-harvesting (converting, ACOS <= target) and terms worth negating (wasted spend /
-too high ACOS), score relevancy with AI so irrelevant terms can be negated too.
-
-Step 2 (Apply): add selected keywords to their ad groups (create_entities target)
-and create negatives for selected terms (create_entities negative_targeting).
-
-Reuses the shared AdLabs client + profile list from the Ads blueprint.
+Pulls the reports (AdLabs: search terms, existing targets, advertised products;
+SP-API: Search Query Performance), runs the harvesting engine
+(utils/keyword_harvester), and emits three dry-run review artifacts the user feeds
+to the Campaign Processor. No direct account writes — the plan is for approval.
 """
 
-import json
+import os
 import re
-from collections import defaultdict
-from datetime import datetime, timedelta
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, send_file, abort
 
+import db
+from config import cfg
 from utils import jobs
+from utils import spapi_client
 from utils.adlabs_client import AdLabsClient, AdLabsError
-from utils.keyword_harvester import categorize_search_terms, sqp_opportunities
-from utils.ai_client import keyword_relevancy, harvest_summary, keyword_brand_flags
+from utils import keyword_harvester as kh
 from utils.jsonutil import convert_numpy
 from blueprints.ads import _adlabs, _date_filters
-
-
-def _filters(lookback, start, end):
-    """Build AdLabs DATE/COMPARE_DATE filters from a preset lookback OR a custom
-    start/end range (YYYY-MM-DD). COMPARE is the immediately-preceding equal window."""
-    if start and end:
-        try:
-            s = datetime.strptime(start, "%Y-%m-%d").date()
-            e = datetime.strptime(end, "%Y-%m-%d").date()
-        except ValueError:
-            return _date_filters(lookback), None
-        if e < s:
-            s, e = e, s
-        days = (e - s).days + 1
-        c_end = s - timedelta(days=1)
-        c_start = c_end - timedelta(days=days - 1)
-
-        def blk(key, a, b):
-            return {"key": key, "conditions": [
-                {"operator": ">=", "values": [a.isoformat()]},
-                {"operator": "<=", "values": [b.isoformat()]}], "logical_operator": "AND"}
-        return [blk("DATE", s, e), blk("COMPARE_DATE", c_start, c_end)], f"{s.isoformat()} → {e.isoformat()}"
-    return _date_filters(lookback), f"last {lookback} days"
 
 bp = Blueprint("harvest", __name__, url_prefix="/harvest")
 
 _PROFILE_ID_RE = re.compile(r"Profile ID:\s*(\d+)")
-# profile_id -> {st_ref, adg_ref, sqp_ref, team_id, target_acos}
-_cache = {}
 
 
 @bp.route("")
@@ -59,19 +30,31 @@ def page():
     return render_template("harvest.html")
 
 
+@bp.route("/accounts")
+def accounts():
+    """SP-API accounts the user can link for SQP (optional)."""
+    return jsonify({"success": True, "accounts": db.list_accounts("spapi")})
+
+
 @bp.route("/analyze", methods=["POST"])
 def analyze():
     body = request.get_json() or {}
-    team_id = body.get("team_id"); slug = body.get("slug")
+    team_id, slug = body.get("team_id"), body.get("slug")
     if not team_id or not slug:
         return jsonify({"success": False, "error": "team_id and slug required"}), 400
-    target_acos = float(body.get("target_acos", 0.30))
-    min_negate_spend = float(body.get("min_negate_spend", 1.0))
-    lookback = int(body.get("lookback_days", 30))
-    start_date = body.get("start_date")
-    end_date = body.get("end_date")
-    brand = body.get("brand", "")
-    filters, range_label = _filters(lookback, start_date, end_date)
+    spapi_account_id = body.get("spapi_account_id")
+    asp = float(body.get("asp", 25) or 25)
+    target_acos = float(body.get("target_acos", 0.20) or 0.20)
+    cfg_obj = kh.HarvestConfig(
+        min_clicks=body.get("min_clicks", 5), min_orders=body.get("min_orders", 2),
+        max_acos=body.get("max_acos", 0.30), lookback_days=body.get("lookback_days", 60),
+        target_acos_default=target_acos,
+        expansion_stage_enabled=body.get("expansion_stage_enabled", True),
+        max_new_campaigns_per_run=body.get("max_new_campaigns_per_run", 50),
+        own_brand_tokens=body.get("own_brand_tokens") or [],
+        competitor_brand_tokens=body.get("competitor_brand_tokens") or [],
+    )
+    filters = _date_filters(cfg_obj.lookback_days)
 
     def work(progress):
         progress("Resolving profile…")
@@ -81,111 +64,85 @@ def analyze():
             raise AdLabsError("Could not resolve profile_id")
         profile_id = m.group(1)
 
-        # --- Search terms ---
-        progress("Fetching search terms…")
+        progress("Fetching search terms (STR)…")
         st_out = _adlabs.get_entity_data("search_term", team_id=int(team_id),
                                          profile_id=profile_id, filters=filters)
-        st_ref = _adlabs.first_reference(st_out)
-        progress("Downloading all search terms…")
-        # Full set via CSV export (read caps at 100 rows; download has no cap).
-        all_rows = _adlabs.download_rows(st_ref)
-        cats = categorize_search_terms(all_rows, target_acos, min_negate_spend)
-        total_terms = len(cats["all"])
-        # Bound the All-terms payload/DOM for very large accounts (counts stay exact).
-        if total_terms > 3000:
-            cats["all"] = cats["all"][:3000]
+        search_rows = _adlabs.download_rows(_adlabs.first_reference(st_out))
+        if not search_rows:
+            raise AdLabsError("No search-term data returned — cannot harvest.")
 
-        # --- Ad groups (for harvest destinations) ---
-        progress("Loading ad groups…")
-        adg_out = _adlabs.get_entity_data("ad_group", team_id=int(team_id),
-                                          profile_id=profile_id, filters=filters)
-        adg_ref = _adlabs.first_reference(adg_out)
-        adg_rows = AdLabsClient.parse_table(_adlabs.read(adg_ref, limit=100))
-        ad_groups = [{"ad_group_id": r.get("ad_group_id"), "ad_group_name": r.get("ad_group_name"),
-                      "campaign_name": r.get("campaign_name"), "campaign_id": r.get("campaign_id")}
-                     for r in adg_rows if r.get("ad_group_id")]
+        progress("Loading existing targets (dedup)…")
+        tg_out = _adlabs.get_entity_data("target", team_id=int(team_id),
+                                         profile_id=profile_id, filters=filters)
+        target_rows = _adlabs.download_rows(_adlabs.first_reference(tg_out))
+        if not target_rows:
+            raise AdLabsError("No targeting data returned — cannot dedup safely; aborting.")
 
-        # --- Which product each ad group advertises (ad_group_id -> ASIN/title) ---
-        progress("Mapping keywords to products…")
-        ag_product = {}
-        brand_hints = set()
-        if brand:
-            brand_hints.add(brand)
+        progress("Mapping ad groups to products…")
+        ap_map = {}
         try:
             ap_out = _adlabs.get_entity_data("advertised_product", team_id=int(team_id),
                                              profile_id=profile_id, filters=filters)
-            for r in AdLabsClient.parse_table(_adlabs.read(_adlabs.first_reference(ap_out), limit=200)):
+            for r in _adlabs.download_rows(_adlabs.first_reference(ap_out)):
                 ag = r.get("ad_group_id")
-                if ag and ag not in ag_product:
-                    ag_product[ag] = {"asin": r.get("asin") or r.get("product_asin") or "",
-                                      "title": r.get("title") or r.get("product_title") or ""}
-                if r.get("brand"):
-                    brand_hints.add(r["brand"].strip())
+                if ag and ag not in ap_map:
+                    ap_map[ag] = {"asin": r.get("asin") or r.get("product_asin") or "",
+                                  "title": r.get("title") or r.get("product_title") or ""}
         except AdLabsError:
             pass
 
-        def _attach_product(rows):
-            for x in rows:
-                p = ag_product.get(x.get("ad_group_id"))
-                if p:
-                    x["product_asin"] = p["asin"]
-                    x["product_title"] = p["title"]
-        _attach_product(cats["all"])
-        _attach_product(cats["harvest"])
-        _attach_product(cats["negate"])
+        # --- SQP via SP-API (optional; degrades if no account linked) ---
+        sqp_index, sqp_opps = {}, []
+        if spapi_account_id:
+            progress("Pulling SQP from SP-API…")
+            try:
+                rt = db.get_account_refresh_token(spapi_account_id)
+                if rt:
+                    endpoint, mkt, *_ = spapi_client.resolve_endpoint_and_marketplace(rt)
+                    client = spapi_client.SpApiClient(rt, endpoint=endpoint, marketplace_id=mkt)
+                    asins = list(dict.fromkeys(p["asin"] for p in ap_map.values() if p.get("asin")))
+                    sqp_rows = client.fetch_sqp(asins[:20])   # cap ASIN fan-out per run
+                    sqp_index, sqp_opps = kh.build_sqp_index(sqp_rows)
+            except Exception as e:  # noqa: BLE001 — SQP is prioritization-only; never fail the run
+                progress(f"SQP skipped: {e}")
 
-        # --- SQP opportunities ---
-        progress("Fetching SQP opportunities…")
-        try:
-            sqp_out = _adlabs.get_entity_data("search_query", team_id=int(team_id),
-                                              profile_id=profile_id, filters=filters)
-            sqp_rows = AdLabsClient.parse_table(_adlabs.read(_adlabs.first_reference(
-                _adlabs.query(_adlabs.first_reference(sqp_out),
-                              "SELECT * FROM reference_data WHERE asin_purchase_count > 0 "
-                              "ORDER BY search_query_volume DESC LIMIT 100")), limit=100))
-            sqp = sqp_opportunities(sqp_rows)
-            for r in sqp_rows:
-                if r.get("brand"):
-                    brand_hints.add(r["brand"].strip())
-        except AdLabsError:
-            sqp = []
+        progress("Running harvest engine…")
+        out = kh.run_harvest(search_rows, target_rows, cfg_obj, ap_map=ap_map,
+                             sqp_index=sqp_index, profile=slug, asp=asp,
+                             target_acos=target_acos)
 
-        # Real brand(s) come from the products, not just the profile name.
-        brand_str = " ".join(sorted(b for b in brand_hints if b)) or brand
-        # --- AI relevancy + summary ---
-        progress("Scoring relevancy with AI…")
-        titles = list(dict.fromkeys(x.get("title") for x in sqp if x.get("title")))[:5]
-        context = f"Brand(s): {brand_str or 'unknown'}. Example products: {'; '.join(titles)}"
-        rel = keyword_relevancy([h["search_term"] for h in cats["harvest"]], context)
-        for h in cats["harvest"]:
-            info = rel.get(h["search_term"], {})
-            h["relevant"] = info.get("relevant", True)
-            h["relevance_reason"] = info.get("reason", "")
-        # Branded vs generic across all search terms (AI, with heuristic fallback).
-        progress("Classifying branded vs generic…")
-        brand_flags = keyword_brand_flags([t["search_term"] for t in cats["all"]], brand_str)
-        for t in cats["all"]:
-            t["branded"] = brand_flags.get(t["search_term"], False)
-        progress("Generating AI summary…")
-        brief = harvest_summary(cats["harvest"], cats["negate"], sqp, target_acos)
+        # Persist the three CSV artifacts for download.
+        os.makedirs(cfg.OUTPUT_FOLDER, exist_ok=True)
+        files = _write_artifacts(out)
 
-        _cache[profile_id] = {"st_ref": st_ref, "adg_ref": adg_ref,
-                              "team_id": int(team_id), "target_acos": target_acos}
-        irrelevant = sum(1 for h in cats["harvest"] if not h.get("relevant", True))
+        # Keep the response light: cap the plan table.
+        plan = out["plan"]
         return {
-            "profile_id": profile_id, "harvest": cats["harvest"], "negate": cats["negate"],
-            "all_terms": cats["all"], "sqp": sqp, "ad_groups": ad_groups,
-            "summary": brief, "range_label": range_label,
-            "stats": {
-                "all": total_terms, "shown": len(cats["all"]),
-                "harvest": len(cats["harvest"]), "negate": len(cats["negate"]),
-                "sqp": len(sqp), "irrelevant": irrelevant,
-                "harvest_sales": round(sum(x["sales"] for x in cats["harvest"]), 2),
-                "negate_spend": round(sum(x["spend"] for x in cats["negate"]), 2),
-            },
+            "profile_id": profile_id, "stats": out["stats"],
+            "plan": plan[:2000], "plan_truncated": len(plan) > 2000,
+            "sqp_opportunities": sqp_opps[:60], "files": files,
+            "range_label": f"last {cfg_obj.lookback_days} days",
+            "counts": {"create": len(out["create"]), "targets": len(out["targets"]),
+                       "negatives": len(out["negatives"])},
         }
 
     return jsonify({"success": True, "job_id": jobs.start(work)})
+
+
+def _write_artifacts(out):
+    """Write the 3 CSVs to OUTPUT_FOLDER under a run id; return {name: filename}."""
+    import time as _t
+    run = _t.strftime("%Y%m%d-%H%M%S")
+    spec = [("create_campaigns", out["create"], kh.CREATE_HEADERS),
+            ("add_targets", out["targets"], kh.ADD_TARGET_HEADERS),
+            ("add_negatives", out["negatives"], kh.ADD_NEGATIVE_HEADERS)]
+    files = {}
+    for name, rows, headers in spec:
+        fn = f"harvest_{name}_{run}.csv"
+        with open(os.path.join(cfg.OUTPUT_FOLDER, fn), "w", encoding="utf-8-sig", newline="") as f:
+            f.write(kh.to_csv(rows, headers))
+        files[name] = fn
+    return files
 
 
 @bp.route("/analyze/<job_id>")
@@ -206,62 +163,12 @@ def analyze_data(job_id):
     return jsonify(convert_numpy({"success": True, **job["result"]}))
 
 
-@bp.route("/apply", methods=["POST"])
-def apply():
-    body = request.get_json() or {}
-    profile_id = body.get("profile_id")
-    cache = _cache.get(profile_id)
-    if not cache:
-        return jsonify({"success": False, "error": "No analysis in memory — run Analyze first."}), 409
-    team_id = cache["team_id"]
-    harvest = body.get("harvest") or []      # [{search_term, ad_group_id, bid}]
-    negate = body.get("negate") or []        # [{search_term_id, ...}]
-    note = "Keyword harvesting via N-Gram Suite"
-    applied = {"harvested": 0, "negated": 0}
-    errors = []
-
-    # Harvest: group by (ad_group_id, match, bid), create keyword targets per group.
-    try:
-        groups = defaultdict(list)
-        for h in harvest:
-            match = (h.get("match") or "EXACT").upper()
-            groups[(h["ad_group_id"], match, round(float(h["bid"]), 2))].append(h["search_term"])
-        for (ag_id, match, bid), kws in groups.items():
-            adg_sub = _adlabs.first_reference(
-                _adlabs.query(cache["adg_ref"], _in_sql("ad_group_id", [ag_id])))
-            _adlabs.create_entities(
-                entity_type="target", team_id=team_id, profile_id=profile_id,
-                reference=adg_sub, match_types=json.dumps([match]),
-                keywords=json.dumps(kws), bid_amount=bid, note=note)
-            applied["harvested"] += len(kws)
-    except AdLabsError as e:
-        errors.append(f"harvest: {e}")
-
-    # Negate: group selected rows by chosen match (EXACT / PHRASE), then create the
-    # corresponding AD_GROUP negative for each group.
-    _NEG_MATCH = {"EXACT": "AD_GROUP_NEGATIVE_EXACT", "PHRASE": "AD_GROUP_NEGATIVE_PHRASE"}
-    try:
-        by_match = defaultdict(list)
-        for n in negate:
-            if not n.get("search_term_id"):
-                continue
-            match = (n.get("match") or "EXACT").upper()
-            if match not in _NEG_MATCH:
-                match = "EXACT"
-            by_match[match].append(str(n["search_term_id"]))
-        for match, ids in by_match.items():
-            st_sub = _adlabs.first_reference(
-                _adlabs.query(cache["st_ref"], _in_sql("search_term_id", ids)))
-            _adlabs.create_entities(
-                entity_type="negative_targeting", team_id=team_id, profile_id=profile_id,
-                reference=st_sub, match_types=json.dumps([_NEG_MATCH[match]]), note=note)
-            applied["negated"] += len(ids)
-    except AdLabsError as e:
-        errors.append(f"negate: {e}")
-
-    return jsonify({"success": not errors, "applied": applied, "errors": errors})
-
-
-def _in_sql(col, ids):
-    quoted = ",".join("'" + str(i).replace("'", "") + "'" for i in ids)
-    return f"SELECT * FROM reference_data WHERE {col} IN ({quoted})"
+@bp.route("/download/<path:filename>")
+def download(filename):
+    """Download a harvest artifact CSV (must be a generated harvest_ file)."""
+    if not re.fullmatch(r"harvest_[a-z_]+_\d{8}-\d{6}\.csv", filename):
+        abort(404)
+    path = os.path.join(cfg.OUTPUT_FOLDER, filename)
+    if not os.path.exists(path):
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=filename)

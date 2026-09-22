@@ -1,21 +1,87 @@
-"""Keyword harvesting / negation logic over AdLabs search-term & SQP data.
+"""Keyword Harvesting engine (Module 4 of the PPC suite).
 
-Splits search terms into:
-  - HARVEST: converting terms worth adding as exact keywords (orders, ACOS <= target)
-  - NEGATE:  wasted-spend terms worth blocking (spend, no sales / ACOS too high)
+The ASIN-level funnel from keyword_harvesting_process.md: qualify converting
+customer search terms, dedup against what's already targeted, ROUTE each to a
+destination (keyword term -> SPM·SKW·Ex.·Rank new campaign; its root -> SPM·MKW·Ex.
+themed campaign; ASIN -> SPM·PT·Ex. add-to-existing), compute a starting bid,
+prioritize with SQP demand, and emit three review artifacts:
 
-SQP (search query performance) rows become harvest *opportunities* — high-volume
-queries the product converts on but isn't yet targeting.
+  - create_campaigns : rows in the Campaign Naming bulk schema (feed Campaign Processor)
+  - add_targets      : ADD_TARGET ops for existing PT / MKW campaigns
+  - add_negatives    : ADD_NEGATIVE ops for the source discovery campaigns
 
-All inputs are AdLabs TSV rows (string values); numbers are parsed defensively.
+Pure functions only — the blueprint pulls the reports (AdLabs STR/targeting +
+SP-API SQP) and passes rows in. Dry-run: this module never calls a write API.
 """
 
+import csv
+import io
 import re
-
-from utils.bid_optimizer import DEFAULTS as _OPT_DEFAULTS
 
 _ASIN_RE = re.compile(r"^b0[0-9a-z]{8}$", re.I)
 
+# Exact Campaign Naming header order (assets/campaign_template.xlsx, row 1) so the
+# create_campaigns artifact drops straight into the Campaign Processor.
+CREATE_HEADERS = [
+    "Action", "Product Name", "Campaign Type", "Landing Page", "KW or PT",
+    "Match Type", "Root KW", "Campaign Goal", "Campaign Name", "Profile",
+    "Daily Budget", "Date Range", "Targeting Type", "Brand", "Goals",
+    "Bidding Strategy", "Placement Bid Adjustment (Top of Search)",
+    "Placement Bid Adjustment (Product Pages)",
+    "Placement Bid Adjustment (Rest of Search)", "Campaign Tag", "Portfolio",
+    "Targeting Type ", "Ad Group Name", "Landing Page ", "Cost Control",
+    "Default Bid", "ASIN/SKU", "Targets", "Negative Phrase", "Negative Exact",
+    "Negative PAT", "Headline", "Video Filename", "Placement Modifier", "ASP",
+    "ACoS Target", "Conversion Rate", "Starting Bid", "Repurpose Campaign", "Helper",
+]
+ADD_TARGET_HEADERS = ["op", "product", "campaign", "ad_group", "target",
+                      "expression", "match", "bid", "source_term"]
+ADD_NEGATIVE_HEADERS = ["op", "product", "source_campaign", "value", "match", "object"]
+
+# Theme dictionary (spec §9) — longest seed match assigns a keyword's root.
+THEME_DICT = [
+    ("1-Gift", ["gift", "gifts", "present"]),
+    ("2-Accessories", ["accessory", "accessories", "kit", "set"]),
+    ("3-Training Aids", ["training aid", "trainer aid", "practice aid"]),
+    ("4-Putter", ["putter"]),
+    ("5-Swing", ["swing"]),
+    ("6-Mirror", ["mirror"]),
+    ("7-Putting", ["putting", "putt", "green"]),
+    ("8-Practice", ["practice", "drill"]),
+    ("9-Trainer", ["trainer", "training"]),
+    ("11-Alignment", ["alignment", "align", "aim"]),
+]
+
+_STOP = {"for", "the", "and", "with", "your", "a", "to", "of", "in", "on", "best",
+         "new", "men", "women", "kids"}
+
+
+class HarvestConfig:
+    """Config block (spec §1). Built from the request form with these defaults."""
+
+    def __init__(self, **kw):
+        self.min_clicks = int(kw.get("min_clicks", 5))
+        self.min_orders = int(kw.get("min_orders", 2))
+        self.max_acos = float(kw.get("max_acos", 0.30))
+        self.lookback_days = int(kw.get("lookback_days", 60))
+        self.target_acos_default = float(kw.get("target_acos_default", 0.20))
+        self.rank_aggression = float(kw.get("rank_aggression", 1.20))
+        self.bid_min = float(kw.get("bid_min", 0.10))
+        self.bid_max_multiplier = float(kw.get("bid_max_multiplier", 1.50))
+        self.high_price_pt_threshold = float(kw.get("high_price_pt_threshold", 1.25))
+        self.expansion_stage_enabled = bool(kw.get("expansion_stage_enabled", True))
+        self.max_new_campaigns_per_run = int(kw.get("max_new_campaigns_per_run", 50))
+        self.daily_budget = float(kw.get("daily_budget", 5))
+        self.tos_bid = int(kw.get("tos_bid", 25))
+        self.ros_bid = int(kw.get("ros_bid", 25))
+        self.own_brand_tokens = [t.strip().lower() for t in (kw.get("own_brand_tokens") or []) if t.strip()]
+        self.competitor_brand_tokens = [t.strip().lower() for t in (kw.get("competitor_brand_tokens") or []) if t.strip()]
+        # priority weights (spec §8)
+        self.w1, self.w2, self.w3, self.w4 = (float(kw.get("w1", 0.4)), float(kw.get("w2", 0.25)),
+                                              float(kw.get("w3", 0.2)), float(kw.get("w4", 0.15)))
+
+
+# --------------------------------------------------------------- helpers ---
 
 def _f(v, d=0.0):
     try:
@@ -24,128 +90,288 @@ def _f(v, d=0.0):
         return d
 
 
-def _looks_like_asin(term):
-    return bool(_ASIN_RE.match((term or "").strip()))
+def _norm(term):
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", str(term or "").lower())).strip()
 
 
-def _account_agg(rows):
-    """Account-level AOV and aCTC (avg clicks per order) for fallbacks in rule 4."""
-    tot_sales = sum(_f(r.get("sales")) for r in rows)
-    tot_orders = sum(_f(r.get("orders")) for r in rows)
-    tot_clicks = sum(_f(r.get("clicks")) for r in rows)
-    return {
-        "aov": (tot_sales / tot_orders) if tot_orders else 0.0,
-        "actc": (tot_clicks / tot_orders) if tot_orders else 0.0,
-    }
+def is_asin(term):
+    return bool(_ASIN_RE.match(str(term or "").strip()))
 
 
-def _harvest_bid(cpc, rpc, clicks, acos, target_acos, agg):
-    """Starting bid for a harvested keyword using the 4-rule formula.
-
-    CPC is used as a proxy for the current bid (no existing bid for new keywords).
-    Rules evaluated in order; first match wins:
-      Rule 1 – High ACOS        : acos > target  → RPC × target  (rare for harvest)
-      Rule 3 – Low ACOS         : acos < target × 0.80 → CPC × 1.07
-      Rule 4 – Low Visibility   : clicks < account aCTC → CPC × 1.05
-      Default – on-target       : CPC (no adjustment needed)
-    """
-    bid = max(cpc, 0.05)
-    low_threshold = target_acos * (1 - _OPT_DEFAULTS["buffer"])
-
-    if acos is not None and acos > target_acos:
-        new_bid = rpc * target_acos
-    elif acos is not None and acos < low_threshold:
-        new_bid = bid * _OPT_DEFAULTS["low_acos_mult"]
-    elif agg["actc"] and clicks < agg["actc"]:
-        new_bid = bid * _OPT_DEFAULTS["low_vis_mult"]
-    else:
-        new_bid = bid
-
-    return max(0.05, round(min(new_bid, _OPT_DEFAULTS["max_bid"]), 2))
+def brand_tag(term, cfg):
+    t = " " + _norm(term) + " "
+    if any(f" {tok} " in t or t.strip() == tok for tok in cfg.own_brand_tokens):
+        return "own_brand"
+    if any(f" {tok} " in t or t.strip() == tok for tok in cfg.competitor_brand_tokens):
+        return "competitor"
+    return "generic"
 
 
-def categorize_search_terms(rows, target_acos, min_negate_spend=1.0,
-                            negate_acos_mult=1.5):
-    """Return {"harvest": [...], "negate": [...], "all": [...]} from search_term rows.
+# Discovery campaign detection: keep Auto + Broad/Broad-Mod/Phrase + CT/STPP; drop
+# rows already served by an Exact target (those are graduates, not discovery).
+def is_discovery(row):
+    match = str(row.get("match_types") or row.get("match_type") or "").lower()
+    return "exact" not in match
 
-    `all` is every parsed term annotated with a `category` (harvest / negate / neutral)
-    for the "All search terms" overview.
-    """
-    # Pre-compute account-level aggregates (needed for rule 4 – Low Visibility).
-    agg = _account_agg(rows)
 
-    harvest, negate, all_terms = [], [], []
-    for r in rows:
-        term = (r.get("search_term") or "").strip()
-        if not term:
+def assign_root(term):
+    """Root/theme for a keyword: longest theme-dict seed match, else the most
+    descriptive non-stopword token."""
+    t = " " + _norm(term) + " "
+    best_theme, best_len = "", 0
+    for theme, seeds in THEME_DICT:
+        for s in seeds:
+            if f" {s} " in t and len(s) > best_len:
+                best_theme, best_len = theme, len(s)
+    if best_theme:
+        return best_theme
+    toks = [w for w in _norm(term).split() if w not in _STOP and len(w) > 2]
+    return max(toks, key=len) if toks else (_norm(term) or "misc")
+
+
+def build_dedup(target_rows):
+    """From the Targeting report: sets of already-targeted exact keywords and
+    existing product-target ASINs (global across the profile)."""
+    kw, asin = set(), set()
+    for r in target_rows:
+        tgt = str(r.get("targeting") or r.get("keyword_text") or "").strip()
+        match = str(r.get("match_types") or r.get("match_type") or "").lower()
+        if not tgt:
             continue
+        if is_asin(tgt) or "asin=" in tgt.lower() or "product" in match:
+            m = _ASIN_RE.search(re.sub(r'.*asin="?', "", tgt, flags=re.I))
+            asin.add((m.group(0) if m else tgt).lower())
+        elif "exact" in match:
+            kw.add(_norm(tgt))
+    return {"keyword": kw, "asin": asin}
+
+
+def build_sqp_index(sqp_rows):
+    """Aggregate weekly SQP rows into {normalized_query: {...}} with the current
+    4-week vs prior 4-week purchase-share trend (spec §2 step 2 / §8). Also flags
+    non-targeted converting queries as fresh opportunities."""
+    by_q = {}
+    for r in sqp_rows:
+        q = _norm(r.get("search_query"))
+        if not q:
+            continue
+        by_q.setdefault(q, []).append(r)
+    index, opportunities = {}, []
+    for q, rows in by_q.items():
+        rows.sort(key=lambda x: x.get("week_start", ""))
+        cur, prior = rows[-4:], rows[-8:-4]
+
+        def _avg(rs, k):
+            vals = [_f(x.get(k)) for x in rs]
+            return (sum(vals) / len(vals)) if vals else 0.0
+        ps_cur, ps_prior = _avg(cur, "asin_purchase_share"), _avg(prior, "asin_purchase_share")
+        purchases = sum(_f(x.get("asin_purchase_count")) for x in cur)
+        volume = _f(cur[-1].get("search_query_volume")) if cur else 0.0
+        index[q] = {
+            "purchase_share": round(ps_cur, 4), "purchase_share_prior": round(ps_prior, 4),
+            "trend": round(ps_cur - ps_prior, 4), "purchases": int(purchases),
+            "volume": int(volume), "impression_share": round(_avg(cur, "asin_impression_share"), 4),
+            "raw": cur[-1] if cur else {},
+        }
+        # fresh opportunity: real volume + the ASIN converts on it
+        if volume > 0 and purchases >= 1:
+            opportunities.append({"search_query": (cur[-1].get("search_query") if cur else q),
+                                  **index[q]})
+    opportunities.sort(key=lambda x: (x["purchases"], x["volume"]), reverse=True)
+    return index, opportunities
+
+
+def harvest_bid(asp, target_acos, cvr, goal, suggested, cfg):
+    """spec §7: ASP * target_acos * cvr, ×rank_aggression for Rank, clamped."""
+    base = (asp or 0) * (target_acos or cfg.target_acos_default) * (cvr or 0)
+    if goal == "Rank":
+        base *= cfg.rank_aggression
+    high = (suggested * cfg.bid_max_multiplier) if suggested else (base or cfg.bid_min)
+    return round(max(cfg.bid_min, min(base if base else cfg.bid_min, high)), 2)
+
+
+# --------------------------------------------------------------- engine ---
+
+def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
+                sqp_index=None, product=None, profile="", asp=None, target_acos=None):
+    """Core funnel. Returns {plan, create, targets, negatives, stats}.
+
+    search_rows : AdLabs search_term rows. target_rows : AdLabs target rows.
+    ap_map      : {ad_group_id: {asin,title}}. blacklist : set of n-gram terms.
+    sqp_index   : {normalized_query: {purchase_share, purchase_share_prior, ...}}.
+    product     : default product label. asp/target_acos: economics (per run).
+    """
+    ap_map = ap_map or {}
+    blacklist = blacklist or set()
+    sqp_index = sqp_index or {}
+    dedup = build_dedup(target_rows)
+    tacos = target_acos or cfg.target_acos_default
+
+    plan = []
+    for r in search_rows:
+        raw = (r.get("search_term") or "").strip()
+        if not raw:
+            continue
+        term = _norm(raw)
         clicks = _f(r.get("clicks")); spend = _f(r.get("spend"))
         sales = _f(r.get("sales")); orders = _f(r.get("orders"))
         acos = (spend / sales) if sales > 0 else None
+        cvr = (orders / clicks) if clicks > 0 else 0.0
         cpc = (spend / clicks) if clicks > 0 else 0.0
-        rpc = (sales / clicks) if clicks > 0 else 0.0
-        already = bool((r.get("harvested_targets") or "").strip())
-        ad_type = r.get("campaign_ad_type", "")
+        obj = "asin" if is_asin(raw) else "keyword"
+        tag = brand_tag(raw, cfg)
+        prod = (ap_map.get(r.get("ad_group_id")) or {}).get("title") or product or profile
+        prod_asin = (ap_map.get(r.get("ad_group_id")) or {}).get("asin") or ""
 
-        base = {
-            "search_term": term, "search_term_id": r.get("search_term_id"),
-            "campaign": r.get("campaign_name"), "campaign_id": r.get("campaign_id"),
-            "ad_group": r.get("ad_group_name"), "ad_group_id": r.get("ad_group_id"),
-            "match_types": r.get("match_types"), "campaign_ad_type": ad_type,
-            "impressions": int(_f(r.get("impressions"))),
-            "clicks": int(clicks), "spend": round(spend, 2), "sales": round(sales, 2),
-            "orders": int(orders), "acos": round(acos, 4) if acos is not None else None,
-            "cvr": _f(r.get("cvr")), "cpc": round(cpc, 2), "rpc": round(rpc, 4),
-            "already_harvested": already, "is_brand": (r.get("is_brand_asin") or "").lower() in ("true", "1", "yes"),
+        row = {
+            "product": prod, "product_asin": prod_asin, "search_term": raw, "object": obj,
+            "brand_tag": tag, "source_campaign": r.get("campaign_name"),
+            "source_match": r.get("match_types"), "clicks": int(clicks),
+            "orders": int(orders), "spend": round(spend, 2), "sales": round(sales, 2),
+            "acos": round(acos, 4) if acos is not None else None, "cvr": round(cvr, 4),
         }
 
-        category = "neutral"
-        # HARVEST: converting, efficient, not an ASIN, not already harvested.
-        if (orders >= 1 and acos is not None and acos <= target_acos
-                and not already and not _looks_like_asin(term)):
-            harvest.append({**base, "suggested_bid": _harvest_bid(cpc, rpc, int(clicks), acos, target_acos, agg),
-                            "reason": f"{int(orders)} orders at {acos*100:.0f}% ACOS"})
-            category = "harvest"
-        # NEGATE: wasted spend or very inefficient.
-        elif spend >= min_negate_spend and orders == 0:
-            negate.append({**base, "suggested_match": "EXACT",
-                           "reason": f"${spend:.2f} spend, 0 orders"})
-            category = "negate"
-        elif acos is not None and acos >= negate_acos_mult * target_acos:
-            negate.append({**base, "suggested_match": "EXACT",
-                           "reason": f"ACOS {acos*100:.0f}% (>{negate_acos_mult:.1f}× target)"})
-            category = "negate"
+        # Gates (§4) + scope + blacklist.
+        if not is_discovery(r):
+            plan.append({**row, "decision": "SKIP", "reason": "not a discovery source"}); continue
+        if term in blacklist:
+            plan.append({**row, "decision": "SKIP", "reason": "n-gram blacklisted"}); continue
+        if clicks < cfg.min_clicks:
+            plan.append({**row, "decision": "SKIP", "reason": f"clicks<{cfg.min_clicks}"}); continue
+        if orders < cfg.min_orders:
+            plan.append({**row, "decision": "SKIP", "reason": f"orders<{cfg.min_orders}"}); continue
+        if acos is None or acos > cfg.max_acos:
+            plan.append({**row, "decision": "SKIP", "reason": f"acos>{cfg.max_acos:.0%}"}); continue
 
-        all_terms.append({**base, "category": category})
+        # Dedup (§5).
+        key = _norm(re.sub(r'.*asin="?', "", raw, flags=re.I)).replace(" ", "") if obj == "asin" else term
+        already = key in dedup[obj]
+        row["priority"] = _priority(row, sqp_index.get(term, {}), cfg)
+        if already:
+            plan.append({**row, "decision": "SKIP-EXISTS",
+                         "reason": "already targeted", "negative_only": True}); continue
 
-    harvest.sort(key=lambda x: x["sales"], reverse=True)
-    negate.sort(key=lambda x: x["spend"], reverse=True)
-    all_terms.sort(key=lambda x: x["spend"], reverse=True)
-    return {"harvest": harvest, "negate": negate, "all": all_terms}
+        # Route (§6).
+        if obj == "keyword" and tag == "own_brand":
+            plan.append({**row, "decision": "FLAG", "reason": "own-brand -> manual defense"})
+            continue
+        bid = harvest_bid(asp, tacos, cvr, "Rank" if obj == "keyword" else "Perf",
+                          _f(r.get("suggested_bid")) or None, cfg)
+        row.update({"decision": "PROMOTE", "suggested_bid": bid, "root": assign_root(raw)})
+        row["dest"] = "SPM·SKW·Exact" if obj == "keyword" else "SPM·PT·Exact"
+        plan.append(row)
+
+    # Prioritize + truncate promotions (§8); skips/flags kept for the report.
+    promotes = sorted([p for p in plan if p["decision"] == "PROMOTE"],
+                      key=lambda x: x.get("priority", 0), reverse=True)
+    kept = promotes[: cfg.max_new_campaigns_per_run]
+    kept_ids = {id(p) for p in kept}
+    for p in promotes[cfg.max_new_campaigns_per_run:]:
+        p["decision"] = "SKIP"; p["reason"] = "over per-run cap"
+
+    create, targets, negatives = _artifacts(plan, kept_ids, cfg)
+    stats = {
+        "total": len(plan),
+        "promote": len(kept),
+        "skip_exists": sum(1 for p in plan if p["decision"] == "SKIP-EXISTS"),
+        "flag": sum(1 for p in plan if p["decision"] == "FLAG"),
+        "skip": sum(1 for p in plan if p["decision"] == "SKIP"),
+        "roots": len({p["root"] for p in kept if p.get("root") and p["object"] == "keyword"}),
+    }
+    return {"plan": plan, "create": create, "targets": targets,
+            "negatives": negatives, "stats": stats}
 
 
-def sqp_opportunities(rows, max_rows=60):
-    """High-volume, converting SQP queries not yet targeted — harvest opportunities."""
-    out = []
+def _priority(row, sqp, cfg):
+    ps = _f(sqp.get("purchase_share"))
+    ps_prior = _f(sqp.get("purchase_share_prior"))
+    acos = row.get("acos") or 0
+    return round(cfg.w1 * row["orders"] + cfg.w2 * ps + cfg.w3 * (ps - ps_prior)
+                 - cfg.w4 * acos, 4)
+
+
+def _neg_rows(row):
+    """Negative write-back for a graduate (spec §6): block the term/ASIN in its
+    source discovery campaign so it stops re-serving what you now own."""
+    if row["object"] == "keyword":
+        return [{"op": "ADD_NEGATIVE", "product": row["product"],
+                 "source_campaign": row.get("source_campaign") or "", "value": row["search_term"],
+                 "match": "Negative Exact", "object": "keyword"}]
+    return [{"op": "ADD_NEGATIVE", "product": row["product"],
+             "source_campaign": row.get("source_campaign") or "", "value": row["search_term"],
+             "match": "Negative PAT", "object": "asin"}]
+
+
+def _artifacts(plan, kept_ids, cfg):
+    create, targets, negatives, seen_roots = [], [], [], set()
+    for p in plan:
+        if p["decision"] == "SKIP-EXISTS" and p.get("negative_only"):
+            negatives += _neg_rows(p); continue
+        if p["decision"] != "PROMOTE" or id(p) not in kept_ids:
+            continue
+        negatives += _neg_rows(p)
+        if p["object"] == "keyword":
+            create.append(_skw_row(p, cfg))                 # term → SKW Ex Rank (new)
+            rk = (p["product"], p["root"])
+            if rk not in seen_roots:                         # root → MKW Ex (once/theme)
+                seen_roots.add(rk)
+                create.append(_mkw_root_row(p, cfg))
+        else:                                               # ASIN → PT Ex add-to-existing
+            targets.append(_pt_target(p, cfg))
+    return create, targets, negatives
+
+
+def _base_create(p, cfg):
+    return {h: "" for h in CREATE_HEADERS} | {
+        "Action": "Create", "Product Name": p["product"], "Campaign Type": "SPM",
+        "Campaign Goal": "Rank", "Daily Budget": cfg.daily_budget,
+        "Targeting Type": "Manual Targeting", "Bidding Strategy": "Fixed Bids",
+        "Placement Bid Adjustment (Top of Search)": cfg.tos_bid,
+        "Placement Bid Adjustment (Rest of Search)": cfg.ros_bid,
+        "Portfolio": p["product"], "ASIN/SKU": p.get("product_asin", ""),
+        "Default Bid": p.get("suggested_bid", cfg.bid_min),
+        "Starting Bid": p.get("suggested_bid", cfg.bid_min),
+    }
+
+
+def _skw_row(p, cfg):
+    term = p["search_term"]
+    return _base_create(p, cfg) | {
+        "KW or PT": "SKW", "Match Type": "Ex.", "Root KW": term,
+        "Campaign Name": f'{p["product"]} | SPM | SKW | Ex. | {term} | Rank',
+        "Ad Group Name": f'{p["product"]} | SKW | {term} | Ex.',
+        "Campaign Tag": f'{p["product"]} > Rank', "Targets": f"{term} — Exact",
+        "Helper": f'{p["product"]}-SKW-Ex.-{term}',
+    }
+
+
+def _mkw_root_row(p, cfg):
+    root = p["root"]
+    return _base_create(p, cfg) | {
+        "KW or PT": "MKW", "Match Type": "Ex.", "Root KW": root,
+        "Campaign Goal": "Rank",
+        "Campaign Name": f'{p["product"]} | SPM | MKW | Ex. | {root} | Rank',
+        "Ad Group Name": f'{p["product"]} | MKW | {root} | Ex.',
+        "Campaign Tag": f'{p["product"]} > Rank', "Targets": f"{root} — Exact",
+        "Helper": f'{p["product"]}-MKW-Ex.-{root}',
+    }
+
+
+def _pt_target(p, cfg):
+    asin = re.sub(r'.*asin="?', "", p["search_term"], flags=re.I)
+    m = _ASIN_RE.search(asin); asin = (m.group(0) if m else p["search_term"]).upper()
+    grp = "Main"   # High/Main split needs target-ASIN price; defaults to Main here.
+    return {"op": "ADD_TARGET", "product": p["product"],
+            "campaign": f'{p["product"]} | SPM | PT | Ex. | {grp} | Perf',
+            "ad_group": f'{p["product"]} | PT | {grp} | Ex.',
+            "target": asin, "expression": "exact", "match": "Ex.",
+            "bid": p.get("suggested_bid", cfg.bid_min), "source_term": p["search_term"]}
+
+
+def to_csv(rows, headers):
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    w.writeheader()
     for r in rows:
-        q = (r.get("search_query") or "").strip()
-        if not q or _looks_like_asin(q):
-            continue
-        volume = _f(r.get("search_query_volume"))
-        purchases = _f(r.get("asin_purchase_count"))
-        conv = _f(r.get("asin_conversion_rate"))
-        purchase_share = _f(r.get("asin_purchase_share"))
-        targeted = bool((r.get("existing_targets") or "").strip())
-        # Opportunity: real volume + the product actually converts on it + not targeted.
-        if volume <= 0 or targeted or purchases < 1:
-            continue
-        out.append({
-            "search_query": q, "volume": int(volume),
-            "purchases": int(purchases), "conversion": round(conv, 4),
-            "purchase_share": round(purchase_share, 4),
-            "click_share": _f(r.get("asin_click_share")),
-            "asin": r.get("asin"), "brand": r.get("brand"), "title": r.get("title"),
-            "score": round(volume * max(conv, 0.0) * max(purchase_share, 0.0), 2),
-        })
-    out.sort(key=lambda x: (x["purchases"], x["volume"]), reverse=True)
-    return out[:max_rows]
+        w.writerow(r)
+    return buf.getvalue()
