@@ -2,8 +2,8 @@
 
 The ASIN-level funnel from keyword_harvesting_process.md: qualify converting
 customer search terms, dedup against what's already targeted, ROUTE each to a
-destination (keyword term -> SPM·SKW·Ex.·Rank new campaign; its root -> SPM·MKW·Ex.
-themed campaign; ASIN -> SPM·PT·Ex. add-to-existing), compute a starting bid,
+destination (keyword terms grouped by root -> one SPM·MKW·Ex. themed campaign per
+root; ASIN -> SPM·PT·Ex. add-to-existing), compute a starting bid,
 prioritize with SQP demand, and emit three review artifacts:
 
   - create_campaigns : rows in the Campaign Naming bulk schema (feed Campaign Processor)
@@ -276,27 +276,36 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
             continue
         bid = harvest_bid(term_asp, term_tacos, cvr, "Rank" if obj == "keyword" else "Perf",
                           _f(r.get("suggested_bid")) or None, cfg)
-        row.update({"decision": "PROMOTE", "suggested_bid": bid, "root": assign_root(raw)})
-        row["dest"] = "SPM·SKW·Exact" if obj == "keyword" else "SPM·PT·Exact"
+        root = assign_root(raw)
+        row.update({"decision": "PROMOTE", "suggested_bid": bid, "root": root})
+        # Every graduated keyword is grouped into its root's MKW · Ex. campaign;
+        # ASINs go to the product-targeting campaign. No single-keyword (SKW) route.
+        row["dest"] = f"SPM·MKW·Exact ({root})" if obj == "keyword" else "SPM·PT·Exact"
         plan.append(row)
 
-    # Prioritize + truncate promotions (§8); skips/flags kept for the report.
-    promotes = sorted([p for p in plan if p["decision"] == "PROMOTE"],
-                      key=lambda x: x.get("priority", 0), reverse=True)
-    kept = promotes[: cfg.max_new_campaigns_per_run]
-    kept_ids = {id(p) for p in kept}
-    for p in promotes[cfg.max_new_campaigns_per_run:]:
-        p["decision"] = "SKIP"; p["reason"] = "over per-run cap"
+    # Prioritize + cap (§8). A "campaign" is one root's MKW group, so the per-run
+    # cap limits the number of ROOT campaigns (keeping each root's best-priority
+    # member). ASIN promotes are add-to-existing PT targets and aren't capped.
+    kw_promos = [p for p in plan if p["decision"] == "PROMOTE" and p["object"] == "keyword"]
+    root_pri = {}
+    for p in kw_promos:
+        rk = (p["product"], p["root"])
+        root_pri[rk] = max(root_pri.get(rk, float("-inf")), p.get("priority", 0))
+    kept_roots = {rk for rk, _ in sorted(root_pri.items(), key=lambda x: x[1], reverse=True)
+                  [: cfg.max_new_campaigns_per_run]}
+    for p in kw_promos:
+        if (p["product"], p["root"]) not in kept_roots:
+            p["decision"] = "SKIP"; p["reason"] = "over per-run cap"
+    kept_ids = {id(p) for p in plan if p["decision"] == "PROMOTE"}
 
     create, targets, negatives = _artifacts(plan, kept_ids, cfg)
     stats = {
         "total": len(plan),
-        "promote": len(kept),
+        "promote": sum(1 for p in plan if p["decision"] == "PROMOTE"),
         "skip_exists": sum(1 for p in plan if p["decision"] == "SKIP-EXISTS"),
         "flag": sum(1 for p in plan if p["decision"] == "FLAG"),
         "skip": sum(1 for p in plan if p["decision"] == "SKIP"),
-        "roots": (len({p["root"] for p in kept if p.get("root") and p["object"] == "keyword"})
-                  if cfg.expansion_stage_enabled else 0),
+        "roots": len(kept_roots),   # = number of MKW · Ex. campaigns created
     }
     return {"plan": plan, "create": create, "targets": targets,
             "negatives": negatives, "stats": stats}
@@ -323,7 +332,11 @@ def _neg_rows(row):
 
 
 def _artifacts(plan, kept_ids, cfg):
-    create, targets, negatives, seen_roots = [], [], [], set()
+    """Group kept keyword promotes by (product, root) → one MKW · Ex. campaign per
+    root whose Targets are all the graduated keywords sharing that root. ASINs go to
+    the PT campaign. Every graduate also writes a negative back to its source."""
+    targets, negatives = [], []
+    groups = {}   # (product, root) -> [member rows], insertion-ordered
     for p in plan:
         if p["decision"] == "SKIP-EXISTS" and p.get("negative_only"):
             negatives += _neg_rows(p); continue
@@ -331,16 +344,18 @@ def _artifacts(plan, kept_ids, cfg):
             continue
         negatives += _neg_rows(p)
         if p["object"] == "keyword":
-            create.append(_skw_row(p, cfg))                 # term → SKW Ex Rank (new)
-            # Expansion (opt-in): also seed a themed root → MKW Ex. campaign, once
-            # per (product, root). Disabled → only the per-term SKW campaigns ship.
-            if cfg.expansion_stage_enabled:
-                rk = (p["product"], p["root"])
-                if rk not in seen_roots:
-                    seen_roots.add(rk)
-                    create.append(_mkw_root_row(p, cfg))
+            groups.setdefault((p["product"], p["root"]), []).append(p)
         else:                                               # ASIN → PT Ex add-to-existing
             targets.append(_pt_target(p, cfg))
+
+    create = []
+    for (product, root), members in groups.items():
+        create.append(_mkw_group_row(product, root, members, cfg, "Ex.", "Rank"))
+        # Expansion (opt-in, spec §9): also seed the root as Phrase and Broad-Mod
+        # themed campaigns to keep discovering variants of a proven root.
+        if cfg.expansion_stage_enabled:
+            create.append(_mkw_group_row(product, root, members, cfg, "Ph.", "Reach"))
+            create.append(_mkw_group_row(product, root, members, cfg, "Br.M", "Reach"))
     return create, targets, negatives
 
 
@@ -357,32 +372,23 @@ def _base_create(p, cfg):
     }
 
 
-def _skw_row(p, cfg):
-    # Single-keyword Rank campaign for one harvested search term. The Root KW column
-    # holds only the ROOT (categorization); the search term is the actual Target.
-    term = p["search_term"]
-    root = p.get("root") or assign_root(term)
-    return _base_create(p, cfg) | {
-        "KW or PT": "SKW", "Match Type": "Ex.", "Root KW": root,
-        "Campaign Name": f'{p["product"]} | SPM | SKW | Ex. | {term} | Rank',
-        "Ad Group Name": f'{p["product"]} | SKW | {term} | Ex.',
-        "Campaign Tag": f'{p["product"]} > Rank', "Targets": term,
-        "Helper": f'{p["product"]}-SKW-Ex.-{term}',
-    }
-
-
-def _mkw_root_row(p, cfg):
-    # Themed multi-keyword Exact campaign seeded with the ROOT keyword. The root
-    # lives in the Root KW column (+ MKW · Ex. match type) — it is the keyword, so it
-    # is never duplicated into Targets, which is reserved for actual search terms.
-    root = p["root"]
-    return _base_create(p, cfg) | {
-        "KW or PT": "MKW", "Match Type": "Ex.", "Root KW": root,
-        "Campaign Goal": "Rank",
-        "Campaign Name": f'{p["product"]} | SPM | MKW | Ex. | {root} | Rank',
-        "Ad Group Name": f'{p["product"]} | MKW | {root} | Ex.',
-        "Campaign Tag": f'{p["product"]} > Rank', "Targets": "",
-        "Helper": f'{p["product"]}-MKW-Ex.-{root}',
+def _mkw_group_row(product, root, members, cfg, match, goal):
+    """One themed multi-keyword campaign for a root. Root KW = the root; Targets =
+    all graduated keywords sharing that root (newline-separated); the ad-group
+    default bid = the average of the members' per-keyword bids."""
+    terms = list(dict.fromkeys(m["search_term"] for m in members))
+    bids = [m.get("suggested_bid") for m in members if m.get("suggested_bid")]
+    bid = round(sum(bids) / len(bids), 2) if bids else cfg.bid_min
+    p0 = members[0]
+    return _base_create(p0, cfg) | {
+        "KW or PT": "MKW", "Match Type": match, "Root KW": root,
+        "Campaign Goal": goal,
+        "Campaign Name": f'{product} | SPM | MKW | {match} | {root} | {goal}',
+        "Ad Group Name": f'{product} | MKW | {root} | {match}',
+        "Campaign Tag": f'{product} > {goal}',
+        "Targets": "\n".join(terms),
+        "Default Bid": bid, "Starting Bid": bid,
+        "Helper": f'{product}-MKW-{match}-{root}',
     }
 
 
