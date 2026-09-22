@@ -36,6 +36,64 @@ def accounts():
     return jsonify({"success": True, "accounts": db.list_accounts("spapi")})
 
 
+def _resolve_profile_id(slug):
+    res = _adlabs.read_resource(f"adlabs://profiles/{slug}")
+    m = _PROFILE_ID_RE.search(res)
+    if not m:
+        raise AdLabsError("Could not resolve profile_id")
+    return m.group(1)
+
+
+def _asin_summary(ap_rows):
+    """Aggregate advertised_product rows into per-ASIN economics + a pickable list.
+
+    AdLabs has no literal price field; `aov` (average order value) is the ASP proxy.
+    Returns {asin_lower: {asin, title, sku, price, target_acos, orders, sales, clicks}}.
+    """
+    by = {}
+    for r in ap_rows:
+        a = (r.get("asin") or "").strip()
+        if not a:
+            continue
+        e = by.setdefault(a.lower(), {
+            "asin": a, "title": r.get("title") or r.get("display_name") or "",
+            "sku": r.get("sku") or "", "price": 0.0, "target_acos": 0.0,
+            "orders": 0.0, "sales": 0.0, "clicks": 0.0,
+        })
+        e["price"] = e["price"] or kh._f(r.get("aov"))
+        e["target_acos"] = e["target_acos"] or kh._f(r.get("target_acos"))
+        e["orders"] += kh._f(r.get("orders"))
+        e["sales"] += kh._f(r.get("sales"))
+        e["clicks"] += kh._f(r.get("clicks"))
+        if not e["title"]:
+            e["title"] = r.get("title") or r.get("display_name") or ""
+    return by
+
+
+@bp.route("/asins")
+def asins():
+    """List the profile's advertised ASINs (with title + price) so the user can
+    scope the harvest to specific products. Runs as a job (AdLabs pull)."""
+    team_id, slug = request.args.get("team_id"), request.args.get("slug")
+    if not team_id or not slug:
+        return jsonify({"success": False, "error": "team_id and slug required"}), 400
+    lookback = int(request.args.get("lookback_days", 60) or 60)
+    filters = _date_filters(lookback)
+
+    def work(progress):
+        progress("Resolving profile…")
+        profile_id = _resolve_profile_id(slug)
+        progress("Loading advertised products…")
+        ap_out = _adlabs.get_entity_data("advertised_product", team_id=int(team_id),
+                                         profile_id=profile_id, filters=filters)
+        rows = _adlabs.download_rows(_adlabs.first_reference(ap_out))
+        summary = _asin_summary(rows)
+        items = sorted(summary.values(), key=lambda x: (x["sales"], x["orders"]), reverse=True)
+        return {"asins": items}
+
+    return jsonify({"success": True, "job_id": jobs.start(work)})
+
+
 @bp.route("/analyze", methods=["POST"])
 def analyze():
     body = request.get_json() or {}
@@ -43,7 +101,7 @@ def analyze():
     if not team_id or not slug:
         return jsonify({"success": False, "error": "team_id and slug required"}), 400
     spapi_account_id = body.get("spapi_account_id")
-    asp = float(body.get("asp", 25) or 25)
+    selected_asins = body.get("asins") or []           # ASIN-level scope (empty = whole profile)
     target_acos = float(body.get("target_acos", 0.20) or 0.20)
     cfg_obj = kh.HarvestConfig(
         min_clicks=body.get("min_clicks", 5), min_orders=body.get("min_orders", 2),
@@ -79,17 +137,23 @@ def analyze():
             raise AdLabsError("No targeting data returned — cannot dedup safely; aborting.")
 
         progress("Mapping ad groups to products…")
-        ap_map = {}
+        ap_map, asin_econ = {}, {}
         try:
             ap_out = _adlabs.get_entity_data("advertised_product", team_id=int(team_id),
                                              profile_id=profile_id, filters=filters)
-            for r in _adlabs.download_rows(_adlabs.first_reference(ap_out)):
+            ap_rows = _adlabs.download_rows(_adlabs.first_reference(ap_out))
+            for r in ap_rows:
                 ag = r.get("ad_group_id")
                 if ag and ag not in ap_map:
                     ap_map[ag] = {"asin": r.get("asin") or r.get("product_asin") or "",
                                   "title": r.get("title") or r.get("product_title") or ""}
+            asin_econ = _asin_summary(ap_rows)   # per-ASIN price (AOV) + target ACoS
         except AdLabsError:
             pass
+
+        # Price fallback for any ASIN with no economics: median of known AOVs.
+        prices = sorted(e["price"] for e in asin_econ.values() if e.get("price"))
+        asp_fallback = prices[len(prices) // 2] if prices else float(body.get("asp", 0) or 0)
 
         # --- SQP via SP-API (optional; degrades if no account linked) ---
         sqp_index, sqp_opps = {}, []
@@ -100,7 +164,11 @@ def analyze():
                 if rt:
                     endpoint, mkt, *_ = spapi_client.resolve_endpoint_and_marketplace(rt)
                     client = spapi_client.SpApiClient(rt, endpoint=endpoint, marketplace_id=mkt)
-                    asins = list(dict.fromkeys(p["asin"] for p in ap_map.values() if p.get("asin")))
+                    # Scope SQP to the selected ASINs when set, else the whole profile.
+                    scope = {a.strip().lower() for a in selected_asins if str(a).strip()}
+                    asins = [p["asin"] for p in ap_map.values() if p.get("asin")
+                             and (not scope or p["asin"].lower() in scope)]
+                    asins = list(dict.fromkeys(asins))
                     sqp_rows = client.fetch_sqp(asins[:20])   # cap ASIN fan-out per run
                     sqp_index, sqp_opps = kh.build_sqp_index(sqp_rows)
             except Exception as e:  # noqa: BLE001 — SQP is prioritization-only; never fail the run
@@ -108,8 +176,9 @@ def analyze():
 
         progress("Running harvest engine…")
         out = kh.run_harvest(search_rows, target_rows, cfg_obj, ap_map=ap_map,
-                             sqp_index=sqp_index, profile=slug, asp=asp,
-                             target_acos=target_acos)
+                             sqp_index=sqp_index, profile=slug, asp=asp_fallback,
+                             target_acos=target_acos, asin_econ=asin_econ,
+                             asins=selected_asins)
 
         # Persist the three CSV artifacts for download.
         os.makedirs(cfg.OUTPUT_FOLDER, exist_ok=True)

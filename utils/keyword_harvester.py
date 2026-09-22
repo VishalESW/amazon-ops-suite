@@ -193,17 +193,26 @@ def harvest_bid(asp, target_acos, cvr, goal, suggested, cfg):
 # --------------------------------------------------------------- engine ---
 
 def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
-                sqp_index=None, product=None, profile="", asp=None, target_acos=None):
+                sqp_index=None, product=None, profile="", asp=None, target_acos=None,
+                asin_econ=None, asins=None):
     """Core funnel. Returns {plan, create, targets, negatives, stats}.
 
     search_rows : AdLabs search_term rows. target_rows : AdLabs target rows.
     ap_map      : {ad_group_id: {asin,title}}. blacklist : set of n-gram terms.
     sqp_index   : {normalized_query: {purchase_share, purchase_share_prior, ...}}.
-    product     : default product label. asp/target_acos: economics (per run).
+    product     : default product label.
+    asin_econ   : {asin_lower: {price, target_acos, title}} — per-ASIN economics
+                  pulled from AdLabs (price = advertised_product AOV). The bid uses
+                  the price of the ASIN the search term's ad group advertises.
+    asins       : optional iterable of ASINs to scope the run to (ASIN-level harvest);
+                  terms on any other ASIN are skipped. Empty/None = whole profile.
+    asp/target_acos : profile-wide fallbacks when a term's ASIN has no economics.
     """
     ap_map = ap_map or {}
     blacklist = blacklist or set()
     sqp_index = sqp_index or {}
+    asin_econ = asin_econ or {}
+    selected = {str(a).strip().lower() for a in (asins or []) if str(a).strip()}
     dedup = build_dedup(target_rows)
     tacos = target_acos or cfg.target_acos_default
 
@@ -222,6 +231,10 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
         tag = brand_tag(raw, cfg)
         prod = (ap_map.get(r.get("ad_group_id")) or {}).get("title") or product or profile
         prod_asin = (ap_map.get(r.get("ad_group_id")) or {}).get("asin") or ""
+        asin_key = prod_asin.strip().lower()
+        econ = asin_econ.get(asin_key, {})
+        term_asp = econ.get("price") or asp or 0.0
+        term_tacos = econ.get("target_acos") or tacos
 
         row = {
             "product": prod, "product_asin": prod_asin, "search_term": raw, "object": obj,
@@ -229,7 +242,13 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
             "source_match": r.get("match_types"), "clicks": int(clicks),
             "orders": int(orders), "spend": round(spend, 2), "sales": round(sales, 2),
             "acos": round(acos, 4) if acos is not None else None, "cvr": round(cvr, 4),
+            "asp": round(term_asp, 2), "target_acos": round(term_tacos, 4),
         }
+
+        # ASIN scope (ASIN-level harvest): only work the selected product(s). Terms
+        # whose ad group can't be attributed to a selected ASIN are out of scope.
+        if selected and asin_key not in selected:
+            plan.append({**row, "decision": "SKIP", "reason": "ASIN not selected"}); continue
 
         # Gates (§4) + scope + blacklist.
         if not is_discovery(r):
@@ -255,7 +274,7 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
         if obj == "keyword" and tag == "own_brand":
             plan.append({**row, "decision": "FLAG", "reason": "own-brand -> manual defense"})
             continue
-        bid = harvest_bid(asp, tacos, cvr, "Rank" if obj == "keyword" else "Perf",
+        bid = harvest_bid(term_asp, term_tacos, cvr, "Rank" if obj == "keyword" else "Perf",
                           _f(r.get("suggested_bid")) or None, cfg)
         row.update({"decision": "PROMOTE", "suggested_bid": bid, "root": assign_root(raw)})
         row["dest"] = "SPM·SKW·Exact" if obj == "keyword" else "SPM·PT·Exact"
@@ -335,24 +354,30 @@ def _base_create(p, cfg):
 
 
 def _skw_row(p, cfg):
+    # Single-keyword Rank campaign for one harvested search term. The Root KW column
+    # holds only the ROOT (categorization); the search term is the actual Target.
     term = p["search_term"]
+    root = p.get("root") or assign_root(term)
     return _base_create(p, cfg) | {
-        "KW or PT": "SKW", "Match Type": "Ex.", "Root KW": term,
+        "KW or PT": "SKW", "Match Type": "Ex.", "Root KW": root,
         "Campaign Name": f'{p["product"]} | SPM | SKW | Ex. | {term} | Rank',
         "Ad Group Name": f'{p["product"]} | SKW | {term} | Ex.',
-        "Campaign Tag": f'{p["product"]} > Rank', "Targets": f"{term} — Exact",
+        "Campaign Tag": f'{p["product"]} > Rank', "Targets": term,
         "Helper": f'{p["product"]}-SKW-Ex.-{term}',
     }
 
 
 def _mkw_root_row(p, cfg):
+    # Themed multi-keyword Exact campaign seeded with the ROOT keyword. The root
+    # lives in the Root KW column (+ MKW · Ex. match type) — it is the keyword, so it
+    # is never duplicated into Targets, which is reserved for actual search terms.
     root = p["root"]
     return _base_create(p, cfg) | {
         "KW or PT": "MKW", "Match Type": "Ex.", "Root KW": root,
         "Campaign Goal": "Rank",
         "Campaign Name": f'{p["product"]} | SPM | MKW | Ex. | {root} | Rank',
         "Ad Group Name": f'{p["product"]} | MKW | {root} | Ex.',
-        "Campaign Tag": f'{p["product"]} > Rank', "Targets": f"{root} — Exact",
+        "Campaign Tag": f'{p["product"]} > Rank', "Targets": "",
         "Helper": f'{p["product"]}-MKW-Ex.-{root}',
     }
 
