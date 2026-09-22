@@ -23,7 +23,7 @@
   <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
     <div class="lg:col-span-2">
       <label class="block text-xs font-medium text-muted-foreground mb-1.5">Advertising profile (AdLabs)</label>
-      <select id="profile" onchange="showProfileMeta()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"><option value="">Loading profiles…</option></select>
+      <select id="profile" onchange="onProfileChange()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"><option value="">Loading profiles…</option></select>
       <p id="profileMeta" class="mt-1.5 text-xs text-muted-foreground"></p>
     </div>
     <div class="lg:col-span-2">
@@ -32,14 +32,29 @@
     </div>
   </div>
 
-  <div class="mt-4 grid gap-4 grid-cols-2 lg:grid-cols-6">
+  <!-- Product (ASIN) scope — this is an ASIN-level harvest -->
+  <div class="mt-4">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+      <label class="block text-xs font-medium text-muted-foreground">Products (ASIN) <span class="text-muted-foreground/70">— pick which product(s) to harvest; price is read from AdLabs. Leave empty = whole profile.</span></label>
+      <div class="flex items-center gap-2 text-xs">
+        <input id="asinFilter" oninput="renderAsins()" placeholder="Filter ASIN / title…" class="w-44 rounded-md border border-input bg-background px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring">
+        <button type="button" onclick="asinAll(true)" class="underline text-muted-foreground hover:text-foreground">Select all</button>
+        <button type="button" onclick="asinAll(false)" class="underline text-muted-foreground hover:text-foreground">Clear</button>
+      </div>
+    </div>
+    <div id="asinBox" class="max-h-48 overflow-auto rounded-md border border-border bg-background p-1">
+      <div class="px-2 py-3 text-xs text-muted-foreground">Pick a profile to load its products…</div>
+    </div>
+    <p id="asinHint" class="mt-1 text-xs text-muted-foreground"></p>
+  </div>
+
+  <div class="mt-4 grid gap-4 grid-cols-2 lg:grid-cols-5">
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Min clicks</label><input id="minClicks" type="number" min="0" step="1" value="5" class="stepper"></div>
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Min orders</label><input id="minOrders" type="number" min="0" step="1" value="2" class="stepper"></div>
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Max ACoS (%)</label><input id="maxAcos" type="number" min="1" max="200" step="1" value="30" class="stepper"></div>
     <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Lookback (days)</label>
-      <select id="lookback" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="30">30</option><option value="60" selected>60</option><option value="90">90</option></select></div>
-    <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">ASP ($)</label><input id="asp" type="number" min="1" step="0.5" value="25" class="stepper"></div>
-    <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Target ACoS (%)</label><input id="targetAcos" type="number" min="1" max="100" step="1" value="20" class="stepper"></div>
+      <select id="lookback" onchange="onProfileChange()" class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="30">30</option><option value="60" selected>60</option><option value="90">90</option></select></div>
+    <div><label class="block text-xs font-medium text-muted-foreground mb-1.5">Target ACoS (%) <span class="text-muted-foreground/70">fallback</span></label><input id="targetAcos" type="number" min="1" max="100" step="1" value="20" class="stepper"></div>
   </div>
 
   <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -94,9 +109,9 @@
     </div>
     <div class="max-h-[60vh] overflow-auto"><table class="w-full text-sm">
       <thead class="sticky top-0 bg-secondary text-secondary-foreground text-left text-xs uppercase tracking-wide"><tr>
-        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">Obj</th><th class="px-3 py-2.5">Brand</th><th class="px-3 py-2.5">Source</th>
+        <th class="px-3 py-2.5">Search term</th><th class="px-3 py-2.5">ASIN</th><th class="px-3 py-2.5">Obj</th><th class="px-3 py-2.5">Brand</th><th class="px-3 py-2.5">Source</th>
         <th class="px-3 py-2.5 text-right">Clk</th><th class="px-3 py-2.5 text-right">Ord</th><th class="px-3 py-2.5 text-right">ACoS</th><th class="px-3 py-2.5 text-right">CVR</th>
-        <th class="px-3 py-2.5">Decision</th><th class="px-3 py-2.5">Destination</th><th class="px-3 py-2.5 text-right">Bid</th><th class="px-3 py-2.5 text-right">Prio</th>
+        <th class="px-3 py-2.5 text-right">Price</th><th class="px-3 py-2.5">Decision</th><th class="px-3 py-2.5">Destination</th><th class="px-3 py-2.5 text-right">Bid</th><th class="px-3 py-2.5 text-right">Prio</th>
       </tr></thead><tbody id="pBody" class="divide-y divide-border"></tbody>
     </table></div>
   </div>
@@ -147,6 +162,51 @@ async function loadAccounts(){ try{ const r=await fetch('/harvest/accounts').the
   if(r.success){ const sel=document.getElementById('spapiAccount'); (r.accounts||[]).forEach(a=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name||('Account '+a.id); sel.appendChild(o); }); } }catch(e){} }
 loadAccounts();
 
+// ---- Product (ASIN) scope ----
+let ASINS=[], selectedAsins=new Set(), asinReq=0;
+function onProfileChange(){ showProfileMeta(); loadAsins(); }
+function loadAsins(){
+  const i=document.getElementById('profile').value; const box=document.getElementById('asinBox');
+  ASINS=[]; selectedAsins=new Set(); document.getElementById('asinHint').textContent='';
+  if(i===''||!PROFILES[+i]){ box.innerHTML='<div class="px-2 py-3 text-xs text-muted-foreground">Pick a profile to load its products…</div>'; return; }
+  const p=PROFILES[+i]; const lb=document.getElementById('lookback').value||60;
+  const myReq=++asinReq;
+  box.innerHTML='<div class="px-2 py-3 text-xs text-muted-foreground">Loading products…</div>';
+  const url=`/harvest/asins?team_id=${encodeURIComponent(p.team_id)}&slug=${encodeURIComponent(p.slug)}&lookback_days=${lb}`;
+  fetch(url).then(r=>r.json()).then(res=>{ if(myReq!==asinReq) return;
+    if(!res.success){ box.innerHTML=`<div class="px-2 py-3 text-xs text-danger">${esc(res.error||'Failed to load products')}</div>`; return; }
+    pollAsins(res.job_id, myReq);
+  }).catch(()=>{ if(myReq===asinReq) box.innerHTML='<div class="px-2 py-3 text-xs text-danger">Network error loading products.</div>'; });
+}
+async function pollAsins(id, myReq){
+  try{ const s=await fetch(`/harvest/analyze/${id}`).then(r=>r.json());
+    if(myReq!==asinReq) return;
+    if(!s.success||s.state==='error'){ document.getElementById('asinBox').innerHTML=`<div class="px-2 py-3 text-xs text-danger">${esc(s.message||s.error||'Failed')}</div>`; return; }
+    if(s.state==='done'){ const d=await fetch(`/harvest/analyze/${id}/data`).then(r=>r.json()); if(myReq!==asinReq) return; ASINS=d.asins||[]; renderAsins(); return; }
+    setTimeout(()=>pollAsins(id,myReq),1500);
+  }catch(e){ setTimeout(()=>pollAsins(id,myReq),2000); }
+}
+function renderAsins(){
+  const q=(document.getElementById('asinFilter').value||'').toLowerCase();
+  const box=document.getElementById('asinBox');
+  const list=ASINS.filter(a=>!q||(a.asin||'').toLowerCase().includes(q)||(a.title||'').toLowerCase().includes(q));
+  if(!ASINS.length){ box.innerHTML='<div class="px-2 py-3 text-xs text-muted-foreground">No advertised products found for this profile.</div>'; return; }
+  box.innerHTML='';
+  list.forEach(a=>{ const id='as_'+a.asin; const row=document.createElement('label');
+    row.className='flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/50 cursor-pointer';
+    const price=a.price?('$'+(+a.price).toFixed(2)):'—';
+    row.innerHTML=`<input type="checkbox" class="accent-emerald" ${selectedAsins.has(a.asin)?'checked':''} onchange="toggleAsin('${esc(a.asin)}',this.checked)">
+      <span class="font-mono text-xs">${esc(a.asin)}</span>
+      <span class="text-xs text-muted-foreground truncate flex-1" title="${esc(a.title||'')}">${esc(a.title||'')}</span>
+      <span class="text-xs tabular-nums text-muted-foreground">${price}</span>`;
+    box.appendChild(row); });
+  updateAsinHint();
+}
+function toggleAsin(asin,on){ if(on) selectedAsins.add(asin); else selectedAsins.delete(asin); updateAsinHint(); }
+function asinAll(on){ selectedAsins = on ? new Set(ASINS.map(a=>a.asin)) : new Set(); renderAsins(); }
+function updateAsinHint(){ const n=selectedAsins.size; const el=document.getElementById('asinHint');
+  el.textContent = n===0 ? `Whole profile — all ${ASINS.length} product(s) in scope.` : `${n} product(s) selected.`; }
+
 function tokens(id){ return (document.getElementById(id).value||'').split(',').map(s=>s.trim()).filter(Boolean); }
 
 async function runHarvest(){
@@ -159,7 +219,7 @@ async function runHarvest(){
     min_orders:+document.getElementById('minOrders').value||2,
     max_acos:(+document.getElementById('maxAcos').value||30)/100,
     lookback_days:+document.getElementById('lookback').value||60,
-    asp:+document.getElementById('asp').value||25,
+    asins:[...selectedAsins],
     target_acos:(+document.getElementById('targetAcos').value||20)/100,
     own_brand_tokens:tokens('ownBrand'), competitor_brand_tokens:tokens('compBrand'),
     max_new_campaigns_per_run:+document.getElementById('maxNew').value||50,
@@ -227,18 +287,20 @@ function renderPlan(){
   const body=document.getElementById('pBody'); body.innerHTML='';
   rows.slice(0,1500).forEach(r=>{ const tr=document.createElement('tr'); tr.className='hover:bg-accent/40';
     tr.innerHTML=`<td class="px-3 py-2 font-medium max-w-[200px] truncate" title="${esc(r.search_term)}">${esc(r.search_term)}</td>
+      <td class="px-3 py-2 font-mono text-[11px] text-muted-foreground" title="${esc(r.product||'')}">${esc(r.product_asin||'—')}</td>
       <td class="px-3 py-2 text-xs">${esc(r.object||'')}</td><td class="px-3 py-2 text-xs">${esc(r.brand_tag||'')}</td>
       <td class="px-3 py-2 text-xs text-muted-foreground max-w-[170px] truncate" title="${esc(r.source_campaign||'')}">${esc(r.source_campaign||'')}</td>
       <td class="px-3 py-2 text-right num">${r.clicks}</td><td class="px-3 py-2 text-right num">${r.orders}</td>
       <td class="px-3 py-2 text-right num">${r.acos==null?'—':(r.acos*100).toFixed(0)+'%'}</td>
       <td class="px-3 py-2 text-right num">${((r.cvr||0)*100).toFixed(0)}%</td>
+      <td class="px-3 py-2 text-right num">${r.asp?('$'+(+r.asp).toFixed(2)):'—'}</td>
       <td class="px-3 py-2">${decBadge(r.decision)}<div class="text-[11px] text-muted-foreground">${esc(r.reason||'')}</div></td>
       <td class="px-3 py-2 text-xs">${esc(r.dest||'')}</td>
       <td class="px-3 py-2 text-right num">${r.suggested_bid?('$'+r.suggested_bid.toFixed(2)):'—'}</td>
       <td class="px-3 py-2 text-right num">${r.priority!=null?r.priority:'—'}</td>`;
     body.appendChild(tr); });
-  if(!rows.length) body.innerHTML=emptyRow(12,'No rows match.');
-  if(rows.length>1500) body.innerHTML+=`<tr><td colspan="12" class="px-3 py-3 text-center text-xs text-muted-foreground">Showing 1500 of ${rows.length} — narrow with the filter. CSVs are complete.</td></tr>`;
+  if(!rows.length) body.innerHTML=emptyRow(14,'No rows match.');
+  if(rows.length>1500) body.innerHTML+=`<tr><td colspan="14" class="px-3 py-3 text-center text-xs text-muted-foreground">Showing 1500 of ${rows.length} — narrow with the filter. CSVs are complete.</td></tr>`;
   document.getElementById('cntP').textContent=planRows.length;
 }
 function renderSqp(){
