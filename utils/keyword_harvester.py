@@ -295,7 +295,8 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
         "skip_exists": sum(1 for p in plan if p["decision"] == "SKIP-EXISTS"),
         "flag": sum(1 for p in plan if p["decision"] == "FLAG"),
         "skip": sum(1 for p in plan if p["decision"] == "SKIP"),
-        "roots": len({p["root"] for p in kept if p.get("root") and p["object"] == "keyword"}),
+        "roots": (len({p["root"] for p in kept if p.get("root") and p["object"] == "keyword"})
+                  if cfg.expansion_stage_enabled else 0),
     }
     return {"plan": plan, "create": create, "targets": targets,
             "negatives": negatives, "stats": stats}
@@ -331,10 +332,13 @@ def _artifacts(plan, kept_ids, cfg):
         negatives += _neg_rows(p)
         if p["object"] == "keyword":
             create.append(_skw_row(p, cfg))                 # term → SKW Ex Rank (new)
-            rk = (p["product"], p["root"])
-            if rk not in seen_roots:                         # root → MKW Ex (once/theme)
-                seen_roots.add(rk)
-                create.append(_mkw_root_row(p, cfg))
+            # Expansion (opt-in): also seed a themed root → MKW Ex. campaign, once
+            # per (product, root). Disabled → only the per-term SKW campaigns ship.
+            if cfg.expansion_stage_enabled:
+                rk = (p["product"], p["root"])
+                if rk not in seen_roots:
+                    seen_roots.add(rk)
+                    create.append(_mkw_root_row(p, cfg))
         else:                                               # ASIN → PT Ex add-to-existing
             targets.append(_pt_target(p, cfg))
     return create, targets, negatives
