@@ -273,9 +273,12 @@ class SpApiClient:
         text = self.run_report(report_type)
         return parse_tsv(text)
 
-    def fetch_sqp(self, asins, weeks=8, max_reports=40, cache_get=None, cache_put=None):
+    def fetch_sqp(self, asins, weeks=4, max_reports=40, cache_get=None, cache_put=None):
         """Brand Analytics Search Query Performance, weekly, per ASIN, over the last
-        `weeks` full weeks (spec: last 4 wk + prior 4 wk). Returns flat rows:
+        `weeks` full weeks (the trend splits them recent-half vs prior-half). Amazon
+        requires one report per (ASIN, week) — the report option `asin` is mandatory,
+        so reports cannot be batched across ASINs; keeping `weeks` small is the main
+        way to speed up a first (uncached) run. Returns flat rows:
         {asin, week_start, week_end, search_query, search_query_volume,
          asin_impression_share, asin_click_share, asin_cart_add_share,
          asin_purchase_share, asin_purchase_count}. Degrades to [] on any failure so

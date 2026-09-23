@@ -158,7 +158,10 @@ def build_sqp_index(sqp_rows):
     index, opportunities = {}, []
     for q, rows in by_q.items():
         rows.sort(key=lambda x: x.get("week_start", ""))
-        cur, prior = rows[-4:], rows[-8:-4]
+        # Adaptive trend: split the available weeks in half (recent vs prior) so the
+        # signal works whether we pulled 8, 4 or 2 weeks.
+        h = max(1, len(rows) // 2)
+        cur, prior = rows[-h:], rows[-2 * h:-h]
 
         def _avg(rs, k):
             vals = [_f(x.get(k)) for x in rs]
