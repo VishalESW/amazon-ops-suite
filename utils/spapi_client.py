@@ -273,7 +273,7 @@ class SpApiClient:
         text = self.run_report(report_type)
         return parse_tsv(text)
 
-    def fetch_sqp(self, asins, weeks=8, max_reports=40):
+    def fetch_sqp(self, asins, weeks=8, max_reports=40, cache_get=None, cache_put=None):
         """Brand Analytics Search Query Performance, weekly, per ASIN, over the last
         `weeks` full weeks (spec: last 4 wk + prior 4 wk). Returns flat rows:
         {asin, week_start, week_end, search_query, search_query_volume,
@@ -286,7 +286,12 @@ class SpApiClient:
         created up front and then polled together — Amazon generates them in
         parallel, instead of us waiting out a full create→poll→download cycle for
         each one in turn (which made a multi-ASIN run take many minutes).
-        `max_reports` caps the total fan-out (asins × weeks)."""
+        `max_reports` caps the total fan-out (asins × weeks).
+
+        Completed weeks are immutable, so `cache_get(asin, week_start)` /
+        `cache_put(asin, week_start, week_end, rows)` (optional) let a harvest reuse
+        already-pulled weeks and only fetch the ones it's missing — near-instant on
+        repeat runs. The SP-API report is only requested for cache misses."""
         # Amazon SQP weeks are Sun–Sat and require dataStartTime to be a Sunday.
         # Anchor on the most recent completed Saturday (weekday 5).
         last_sat = datetime.now(timezone.utc).date() - timedelta(days=2)
@@ -297,17 +302,22 @@ class SpApiClient:
             sat = last_sat - timedelta(days=7 * i)
             week_spans.append((sat - timedelta(days=6), sat))
 
-        # 1) Build the (ASIN, week) task list, capped.
-        tasks = []
+        # 1) Build the (ASIN, week) task list, capped. Serve cache hits immediately
+        #    and only fetch the misses from SP-API.
+        rows, tasks = [], []
         for asin in [a for a in dict.fromkeys(asins) if a]:
             for sun, sat in week_spans:
                 if len(tasks) >= max_reports:
                     break
+                cached = cache_get(asin, sun.isoformat()) if cache_get else None
+                if cached is not None:
+                    rows.extend(cached)
+                    continue
                 tasks.append({"asin": asin, "sun": sun, "sat": sat})
             if len(tasks) >= max_reports:
                 break
 
-        # 2) Create every report up front (create_report already backs off on 429).
+        # 2) Create every missing report up front (create_report backs off on 429).
         pending = []
         for t in tasks:
             try:
@@ -342,8 +352,7 @@ class SpApiClient:
             if pending:
                 time.sleep(5)
 
-        # 4) Download + parse the finished reports.
-        rows = []
+        # 4) Download + parse the finished reports, caching each completed week.
         for t in done:
             if not t.get("doc"):
                 continue
@@ -351,11 +360,18 @@ class SpApiClient:
                 text = self.download_document(t["doc"])
             except Exception:  # noqa: BLE001 — one bad doc must not sink the batch
                 continue
+            week_rows = []
             for r in parse_sqp(text):
                 # Guarantee week bounds even if the report omits them.
                 r["week_start"] = r.get("week_start") or t["sun"].isoformat()
                 r["week_end"] = r.get("week_end") or t["sat"].isoformat()
-                rows.append(r)
+                week_rows.append(r)
+            rows.extend(week_rows)
+            if cache_put:
+                try:
+                    cache_put(t["asin"], t["sun"].isoformat(), t["sat"].isoformat(), week_rows)
+                except Exception:  # noqa: BLE001 — caching must never break the run
+                    pass
         return rows
 
     def fetch_sales_traffic(self, days):

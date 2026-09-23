@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT,
     PRIMARY KEY (scope, key)
 );
+
+-- Cached Search Query Performance rows, one row per (marketplace, ASIN, week).
+-- Completed Sun-Sat weeks are immutable, so once fetched they never change and
+-- can be reused across harvest runs instead of re-pulling the slow SP-API report.
+CREATE TABLE IF NOT EXISTS sqp_cache (
+    marketplace_id TEXT NOT NULL,
+    asin           TEXT NOT NULL,
+    week_start     TEXT NOT NULL,
+    week_end       TEXT,
+    data           TEXT NOT NULL,   -- JSON list of parsed SQP rows
+    created_at     REAL NOT NULL,
+    PRIMARY KEY (marketplace_id, asin, week_start)
+);
 """
 
 
@@ -77,6 +90,35 @@ def _conn():
         conn.commit()
     finally:
         conn.close()
+
+
+# --------------------------------------------------------------- sqp cache ---
+
+def sqp_cache_get(marketplace_id, asin, week_start):
+    """Return the cached parsed SQP rows for one (marketplace, ASIN, week), or None."""
+    with _conn() as c:
+        r = c.execute(
+            "SELECT data FROM sqp_cache WHERE marketplace_id=? AND asin=? AND week_start=?",
+            (marketplace_id, asin, week_start),
+        ).fetchone()
+    if not r:
+        return None
+    try:
+        return json.loads(r["data"])
+    except (ValueError, TypeError):
+        return None
+
+
+def sqp_cache_put(marketplace_id, asin, week_start, week_end, rows):
+    """Store parsed SQP rows for one completed week (idempotent upsert)."""
+    with _conn() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO sqp_cache "
+            "(marketplace_id, asin, week_start, week_end, data, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (marketplace_id, asin, week_start, week_end,
+             json.dumps(rows or []), time.time()),
+        )
 
 
 # ---------------------------------------------------------------- accounts ---

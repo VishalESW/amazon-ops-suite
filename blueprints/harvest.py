@@ -174,7 +174,10 @@ def analyze():
                     # so keep the fan-out small (cap ~2 ASINs) to stay fast. Scope to
                     # specific ASINs in the UI for more products without the throttle.
                     progress(f"Pulling SQP for {min(len(asins), 2)} product(s)…")
-                    sqp_rows = client.fetch_sqp(asins[:2])
+                    # Reuse already-pulled, immutable completed weeks; only fetch misses.
+                    cget = lambda a, ws: db.sqp_cache_get(mkt, a, ws)
+                    cput = lambda a, ws, we, rws: db.sqp_cache_put(mkt, a, ws, we, rws)
+                    sqp_rows = client.fetch_sqp(asins[:2], cache_get=cget, cache_put=cput)
                     sqp_index, sqp_opps = kh.build_sqp_index(sqp_rows)
             except Exception as e:  # noqa: BLE001 — SQP is prioritization-only; never fail the run
                 progress(f"SQP skipped: {e}")
