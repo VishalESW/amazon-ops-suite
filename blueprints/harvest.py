@@ -169,15 +169,17 @@ def analyze():
                     cand = [a for a in asin_econ.values() if a.get("asin")
                             and (not scope or a["asin"].lower() in scope)]
                     cand.sort(key=lambda x: (x.get("sales", 0), x.get("orders", 0)), reverse=True)
-                    asins = list(dict.fromkeys(a["asin"] for a in cand))
-                    # Each ASIN = 8 weekly reports; Amazon's create-report burst is ~15,
-                    # so keep the fan-out small (cap ~2 ASINs) to stay fast. Scope to
-                    # specific ASINs in the UI for more products without the throttle.
-                    progress(f"Pulling SQP for {min(len(asins), 2)} product(s)…")
-                    # Reuse already-pulled, immutable completed weeks; only fetch misses.
+                    asins = list(dict.fromkeys(a["asin"] for a in cand))[:2]
+                    # Amazon requires one report per (ASIN, week) and generates them
+                    # slowly (~1 min each), so keep the first-run fan-out small: 2 ASINs
+                    # x 4 weeks = 8 reports. Completed weeks are cached, so re-runs in the
+                    # same week are near-instant and later runs fetch only the new week.
+                    weeks = int(body.get("sqp_weeks", 4) or 4)
                     cget = lambda a, ws: db.sqp_cache_get(mkt, a, ws)
                     cput = lambda a, ws, we, rws: db.sqp_cache_put(mkt, a, ws, we, rws)
-                    sqp_rows = client.fetch_sqp(asins[:2], cache_get=cget, cache_put=cput)
+                    progress(f"Pulling SQP for {len(asins)} product(s) "
+                             f"(first run is slow; completed weeks are cached after)…")
+                    sqp_rows = client.fetch_sqp(asins, weeks=weeks, cache_get=cget, cache_put=cput)
                     sqp_index, sqp_opps = kh.build_sqp_index(sqp_rows)
             except Exception as e:  # noqa: BLE001 — SQP is prioritization-only; never fail the run
                 progress(f"SQP skipped: {e}")
