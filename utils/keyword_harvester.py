@@ -217,6 +217,10 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
     selected = {str(a).strip().lower() for a in (asins or []) if str(a).strip()}
     dedup = build_dedup(target_rows)
     tacos = target_acos or cfg.target_acos_default
+    # Every discovery campaign (Auto/Broad/Broad-Mod/Phrase/CT/…) per product, so a
+    # graduate's negative can be written to ALL of them — not just the one it showed
+    # up in (guide §6: "Neg-Exact in Auto + Broad + Phrase + CT").
+    discovery_by_product = _discovery_campaigns(search_rows, ap_map, product, profile)
 
     plan = []
     for r in search_rows:
@@ -300,7 +304,7 @@ def run_harvest(search_rows, target_rows, cfg, ap_map=None, blacklist=None,
             p["decision"] = "SKIP"; p["reason"] = "over per-run cap"
     kept_ids = {id(p) for p in plan if p["decision"] == "PROMOTE"}
 
-    create, targets, negatives = _artifacts(plan, kept_ids, cfg)
+    create, targets, negatives = _artifacts(plan, kept_ids, cfg, discovery_by_product)
     stats = {
         "total": len(plan),
         "promote": sum(1 for p in plan if p["decision"] == "PROMOTE"),
@@ -321,19 +325,45 @@ def _priority(row, sqp, cfg):
                  - cfg.w4 * acos, 4)
 
 
-def _neg_rows(row):
-    """Negative write-back for a graduate (spec §6): block the term/ASIN in its
-    source discovery campaign so it stops re-serving what you now own."""
-    if row["object"] == "keyword":
-        return [{"op": "ADD_NEGATIVE", "product": row["product"],
-                 "source_campaign": row.get("source_campaign") or "", "value": row["search_term"],
-                 "match": "Negative Exact", "object": "keyword"}]
+def _discovery_campaigns(search_rows, ap_map, product, profile):
+    """Map each product → the ordered set of its discovery campaign names (any
+    campaign that served a term via a non-exact match: Auto/Broad/Broad-Mod/Phrase/
+    CT/STPP). Used to fan a graduate's negative out to every discovery campaign that
+    could serve it for that product."""
+    by_product = {}
+    for r in search_rows:
+        if not is_discovery(r):
+            continue
+        cn = (r.get("campaign_name") or "").strip()
+        if not cn:
+            continue
+        prod = (ap_map.get(r.get("ad_group_id")) or {}).get("title") or product or profile
+        camps = by_product.setdefault(prod, [])
+        if cn not in camps:
+            camps.append(cn)
+    return by_product
+
+
+def _neg_rows(row, discovery_by_product=None):
+    """Negative write-back for a graduate (guide §6): block the term/ASIN in EVERY
+    discovery campaign that can serve it for the product — not just the one it
+    appeared in — so no discovery campaign keeps re-serving what you now own.
+    Keyword → Negative Exact; ASIN → Negative Product Target (PAT)."""
+    discovery_by_product = discovery_by_product or {}
+    match = "Negative Exact" if row["object"] == "keyword" else "Negative PAT"
+    # Union of the product's discovery campaigns + the one this term showed up in.
+    camps = list(discovery_by_product.get(row["product"], []))
+    src = (row.get("source_campaign") or "").strip()
+    if src and src not in camps:
+        camps.append(src)
+    if not camps:                      # no campaign context — still emit one row
+        camps = [src]
     return [{"op": "ADD_NEGATIVE", "product": row["product"],
-             "source_campaign": row.get("source_campaign") or "", "value": row["search_term"],
-             "match": "Negative PAT", "object": "asin"}]
+             "source_campaign": c, "value": row["search_term"],
+             "match": match, "object": row["object"]} for c in camps]
 
 
-def _artifacts(plan, kept_ids, cfg):
+def _artifacts(plan, kept_ids, cfg, discovery_by_product=None):
     """Group kept keyword promotes by (product, root) → one MKW · Ex. campaign per
     root whose Targets are all the graduated keywords sharing that root. ASINs go to
     the PT campaign. Every graduate also writes a negative back to its source."""
@@ -341,10 +371,10 @@ def _artifacts(plan, kept_ids, cfg):
     groups = {}   # (product, root) -> [member rows], insertion-ordered
     for p in plan:
         if p["decision"] == "SKIP-EXISTS" and p.get("negative_only"):
-            negatives += _neg_rows(p); continue
+            negatives += _neg_rows(p, discovery_by_product); continue
         if p["decision"] != "PROMOTE" or id(p) not in kept_ids:
             continue
-        negatives += _neg_rows(p)
+        negatives += _neg_rows(p, discovery_by_product)
         if p["object"] == "keyword":
             groups.setdefault((p["product"], p["root"]), []).append(p)
         else:                                               # ASIN → PT Ex add-to-existing
@@ -353,7 +383,14 @@ def _artifacts(plan, kept_ids, cfg):
     create = []
     for (product, root), members in groups.items():
         create.append(_mkw_group_row(product, root, members, cfg, "Ex.", "Rank"))
-    return create, targets, negatives
+
+    # A term can appear in several source rows; drop identical negatives.
+    seen, deduped = set(), []
+    for n in negatives:
+        k = (n["product"], n["source_campaign"], n["value"], n["match"])
+        if k not in seen:
+            seen.add(k); deduped.append(n)
+    return create, targets, deduped
 
 
 def _base_create(p, cfg):

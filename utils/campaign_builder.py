@@ -288,56 +288,88 @@ def assemble(pid):
     # is non-deterministic); recomputed only when the keyword set or custom roots change.
     cached = state.get("roots") or {}
     custom_roots = cached.get("custom") or []
-    # Signature over the EXACT keyword set (not just its count) so changing WHICH
-    # keywords are selected — even when the count is unchanged — invalidates a stale
-    # map. A stale map misses on lookup and would dump every unmatched keyword into a
-    # single fallback root: the "phantom root in the badge but not in the column" bug.
-    import hashlib
-    sig = hashlib.md5("\n".join(sorted(k.lower() for k in kw_texts)).encode("utf-8")).hexdigest()
-    if cached.get("map") and cached.get("sig") == sig and cached.get("custom", []) == custom_roots:
-        root_map = cached["map"]
-    else:
-        res = ai.assign_roots_ruled(kw_texts, custom_roots) if kw_texts else {"map": {}}
-        root_map = res["map"]
-        cdb.save_state(pid, "roots", {"map": root_map, "custom": custom_roots,
-                                      "sig": sig, "n": len(kw_texts)})
-    # Collapse singular/plural root duplicates (burner/burners, supplement/
-    # supplements) — also fixes project maps cached before this rule existed,
-    # since it runs on every build regardless of the cache. Idempotent.
-    root_map = ai._merge_plurals(root_map or {})
-    # Lower-cased lookup so the keyword text matches regardless of original casing.
-    rm_lower = {str(k).lower(): v for k, v in root_map.items()}
+    # Custom Semantics override: a user-uploaded (search term, RKW) list replaces the
+    # assembled keywords and supplies its own roots, so the AI root pass is skipped.
+    custom_sem = state.get("semantics_custom") or []
+    root_map, rm_lower = {}, {}
+    if not custom_sem:
+        # Signature over the EXACT keyword set (not just its count) so changing WHICH
+        # keywords are selected — even when the count is unchanged — invalidates a stale
+        # map. A stale map misses on lookup and would dump every unmatched keyword into a
+        # single fallback root: the "phantom root in the badge but not in the column" bug.
+        import hashlib
+        sig = hashlib.md5("\n".join(sorted(k.lower() for k in kw_texts)).encode("utf-8")).hexdigest()
+        if cached.get("map") and cached.get("sig") == sig and cached.get("custom", []) == custom_roots:
+            root_map = cached["map"]
+        else:
+            res = ai.assign_roots_ruled(kw_texts, custom_roots) if kw_texts else {"map": {}}
+            root_map = res["map"]
+            cdb.save_state(pid, "roots", {"map": root_map, "custom": custom_roots,
+                                          "sig": sig, "n": len(kw_texts)})
+        # Collapse singular/plural root duplicates (burner/burners, supplement/
+        # supplements) — also fixes project maps cached before this rule existed,
+        # since it runs on every build regardless of the cache. Idempotent.
+        root_map = ai._merge_plurals(root_map or {})
+        # Lower-cased lookup so the keyword text matches regardless of original casing.
+        rm_lower = {str(k).lower(): v for k, v in root_map.items()}
 
     # ---- Semantics rows ----------------------------------------------------
     sem_rows = []
-    for c in y_kws:
-        kw = c["keyword"]
-        sv = sv_by_kw.get(kw.lower(), 0)
-        kw_type, match = _digit_rule(sv)
-        # Every keyword gets a real root: the map entry, else a per-keyword rule
-        # fallback (never silently dumped into the top root).
-        root = rm_lower.get(kw.lower()) or ai.root_for(kw, custom_roots) or "0-Gen"
-        sem_rows.append({
-            "keyword": kw, "source": c["source"],
-            "category": root,
-            "kw_type": kw_type, "match": match, "product": default_product,
-            "product_asin": default_asin,
-            "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
-            # Sheet-display columns — empty by default, filled only by user edits.
-            "disp_kw_type": "", "disp_match": "", "disp_broad": "",
-            "organic_rank": "", "impression_share": "", "ctr": "",
-            # Search Volume (monthly) — shown read-only in the sheet view; the
-            # workbook keeps the live SV formula in column C.
-            "sv": int(round(sv)) if sv else 0,
-            # Conversion Rate — POE "Search Conversion Rate" preferred; falls back
-            # to STR CVR / H10 ABA Total Conv. Share when the kw isn't in POE.
-            "cvr": poe_cvr_by_kw.get(kw.lower()) or cvr_by_kw.get(kw.lower(), ""),
-            # Orders / CPC / ACoS — looked up per keyword in the Search Term
-            # Report; shown read-only while the workbook keeps the live formula.
-            "orders": (str_metrics.get(kw.lower()) or {}).get("orders", ""),
-            "cpc": (str_metrics.get(kw.lower()) or {}).get("cpc", ""),
-            "acos": (str_metrics.get(kw.lower()) or {}).get("acos", ""),
-        })
+    if custom_sem:
+        # Uploaded list IS the Semantics content: each (search term, RKW) becomes a
+        # selected row with the user's root. Metrics (SV/CVR/orders) are still looked
+        # up from the uploaded data files when the term is present there.
+        seen_c = set()
+        for item in custom_sem:
+            kw = str(item.get("keyword", "")).strip()
+            if not kw or kw.lower() in seen_c:
+                continue
+            seen_c.add(kw.lower())
+            root = str(item.get("root", "")).strip() or "0-Gen"
+            sv = sv_by_kw.get(kw.lower(), 0)
+            kw_type, match = _digit_rule(sv)
+            sem_rows.append({
+                "keyword": kw, "source": "Custom", "category": root,
+                "kw_type": kw_type, "match": match, "product": default_product,
+                "product_asin": default_asin,
+                "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
+                "disp_kw_type": "", "disp_match": "", "disp_broad": "",
+                "organic_rank": "", "impression_share": "", "ctr": "",
+                "sv": int(round(sv)) if sv else 0,
+                "cvr": poe_cvr_by_kw.get(kw.lower()) or cvr_by_kw.get(kw.lower(), ""),
+                "orders": (str_metrics.get(kw.lower()) or {}).get("orders", ""),
+                "cpc": (str_metrics.get(kw.lower()) or {}).get("cpc", ""),
+                "acos": (str_metrics.get(kw.lower()) or {}).get("acos", ""),
+            })
+    else:
+        for c in y_kws:
+            kw = c["keyword"]
+            sv = sv_by_kw.get(kw.lower(), 0)
+            kw_type, match = _digit_rule(sv)
+            # Every keyword gets a real root: the map entry, else a per-keyword rule
+            # fallback (never silently dumped into the top root).
+            root = rm_lower.get(kw.lower()) or ai.root_for(kw, custom_roots) or "0-Gen"
+            sem_rows.append({
+                "keyword": kw, "source": c["source"],
+                "category": root,
+                "kw_type": kw_type, "match": match, "product": default_product,
+                "product_asin": default_asin,
+                "placement_mod": DEFAULT_PLACEMENT, "asp": default_asp, "acos_target": DEFAULT_ACOS,
+                # Sheet-display columns — empty by default, filled only by user edits.
+                "disp_kw_type": "", "disp_match": "", "disp_broad": "",
+                "organic_rank": "", "impression_share": "", "ctr": "",
+                # Search Volume (monthly) — shown read-only in the sheet view; the
+                # workbook keeps the live SV formula in column C.
+                "sv": int(round(sv)) if sv else 0,
+                # Conversion Rate — POE "Search Conversion Rate" preferred; falls back
+                # to STR CVR / H10 ABA Total Conv. Share when the kw isn't in POE.
+                "cvr": poe_cvr_by_kw.get(kw.lower()) or cvr_by_kw.get(kw.lower(), ""),
+                # Orders / CPC / ACoS — looked up per keyword in the Search Term
+                # Report; shown read-only while the workbook keeps the live formula.
+                "orders": (str_metrics.get(kw.lower()) or {}).get("orders", ""),
+                "cpc": (str_metrics.get(kw.lower()) or {}).get("cpc", ""),
+                "acos": (str_metrics.get(kw.lower()) or {}).get("acos", ""),
+            })
     _apply_grid_edits(sem_rows, state.get("semantics_edits") or {}, SEM_NUMERIC, key_field="keyword",
                       skip_empty={"category"})
     # The editable sheet columns KW Vol. / Match / Broad KW List are stored as
@@ -479,6 +511,7 @@ def assemble(pid):
         "roots": roots,
         "root_summary": root_summary,
         "custom_roots": custom_roots,
+        "semantics_custom": len(custom_sem),
         "competitors": len(inp.competitor_kws),
         "own_brand_kws": len(inp.own_branded_kws),
         "str_included": bool(inp.str_table),

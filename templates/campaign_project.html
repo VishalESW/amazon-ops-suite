@@ -353,6 +353,18 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
         <p class="text-xs text-muted-foreground mt-2">Rule: brand/device &gt; feature/type &gt; foreign-language group &gt; generic noun · one lowercase word per keyword · max 15 categories. Edited <strong>Root KW</strong> cells are kept and always win.</p>
         <div id="rootSummary" class="mt-2"></div>
       </div>
+      <div class="cp-card p-3 mb-3" style="background:hsl(var(--muted)/.4)">
+        <div class="flex flex-wrap items-end gap-2">
+          <div>
+            <label class="block text-xs font-medium mb-1">Upload custom keyword list — Excel/CSV with <strong>search terms</strong> &amp; <strong>RKW</strong> columns</label>
+            <input id="semFile" type="file" accept=".xlsx,.xls,.csv" class="block text-sm">
+          </div>
+          <button onclick="uploadSemantics()" id="semUploadBtn" class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition">Upload &amp; replace</button>
+          <button onclick="clearSemantics()" id="semClearBtn" class="rounded-md border border-input bg-background px-3.5 py-2 text-sm font-semibold hover:bg-accent transition hidden">Clear custom list</button>
+          <span id="semUploadMsg" class="text-xs text-muted-foreground"></span>
+        </div>
+        <p class="text-xs text-muted-foreground mt-2"><strong>Replaces</strong> the Semantics keywords with your uploaded search terms (each with its <strong>RKW</strong> as Root KW) and selects them. Clear to return to the assembled keywords.</p>
+      </div>
       <div id="asmHost"><p class="text-sm text-muted-foreground py-8 text-center">Assembling…</p></div>
     </section>
 
@@ -1125,9 +1137,37 @@ function renderSemantics(){
     asinChoices:(ASM.products||[]),
   };
   renderRootSummary();
+  // Reflect whether a custom uploaded keyword list is currently in effect.
+  const cc=(ASM.meta&&ASM.meta.semantics_custom)||0;
+  const clr=document.getElementById('semClearBtn');
+  if(clr) clr.classList.toggle('hidden', !cc);
+  const umsg=document.getElementById('semUploadMsg');
+  if(umsg) umsg.textContent = cc ? `Using custom list — ${cc} keyword(s)` : '';
   document.getElementById('asmHost').innerHTML=
+    (cc?`<p class="text-xs mb-2" style="color:hsl(160 84% 30%)">Custom keyword list active (${cc}) — these replace the assembled keywords. Click “Clear custom list” to revert.</p>`:'')+
     `<p class="text-xs text-muted-foreground mb-2">${GRIDS.sem.rows.length} keyword(s) · full Semantics sheet · editable cells are inputs, <span class="cp-fcol" style="padding:0 .3rem">ƒ</span> columns are live formulas · faint placeholder text in <strong>KW Vol.</strong> / <strong>Match Type</strong> = SV-rule hint (reference only — only your manual entries drive campaigns) · check rows then use column header inputs to bulk-edit</p>`+
     editableGrid('sem');
+}
+
+function uploadSemantics(){
+  const inp=document.getElementById('semFile'); const f=inp.files&&inp.files[0];
+  if(!f){toast('Choose an Excel/CSV file first','error');return;}
+  const fd=new FormData(); fd.append('file',f);
+  const btn=document.getElementById('semUploadBtn'); btn.disabled=true;
+  document.getElementById('semUploadMsg').textContent='Uploading…';
+  fetch(`/campaign/projects/${PID}/semantics-upload`,{method:'POST',body:fd}).then(r=>r.json()).then(res=>{
+    btn.disabled=false;
+    if(!res.success){document.getElementById('semUploadMsg').textContent='';toast(res.error||'Upload failed','error');return;}
+    inp.value='';
+    toast(`Loaded ${res.count} custom keyword(s)`,'success');
+    loadAssemble();   // re-assemble so Semantics shows the uploaded keywords
+  }).catch(()=>{btn.disabled=false;document.getElementById('semUploadMsg').textContent='';toast('Network error','error');});
+}
+function clearSemantics(){
+  fetch(`/campaign/projects/${PID}/semantics-upload/clear`,{method:'POST'}).then(r=>r.json()).then(res=>{
+    if(res&&res.success){toast('Custom list cleared','success');loadAssemble();}
+    else toast('Could not clear','error');
+  }).catch(()=>toast('Network error','error'));
 }
 function liveRootCounts(){
   // Count each row's CURRENT Root KW: the edited value if non-empty, else the
