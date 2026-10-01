@@ -1168,6 +1168,74 @@ def save_semantics_edits(pid):
     return jsonify({"success": True, "count": len(cur)})
 
 
+def _parse_semantics_upload(fs):
+    """Parse an uploaded Excel/CSV with two columns — 'search terms' and 'RKW' — into
+    [{keyword, root}]. Column names are matched loosely (exact, then substring)."""
+    name = (fs.filename or "").lower()
+    raw = fs.read()
+    if name.endswith(".csv"):
+        df = pd.read_csv(io.BytesIO(raw), dtype=str)
+    else:
+        df = pd.read_excel(io.BytesIO(raw), dtype=str)
+    df = df.fillna("")
+
+    def _find(cands):
+        cols = list(df.columns)
+        for c in cols:                                  # exact header match first
+            if str(c).strip().lower() in cands:
+                return c
+        for c in cols:                                  # then substring
+            cl = str(c).strip().lower()
+            if any(x in cl for x in cands):
+                return c
+        return None
+
+    kw_col = _find({"search term", "search terms", "keyword", "keywords", "search query"})
+    rk_col = _find({"rkw", "root kw", "root keyword", "root keywords", "root"})
+    if kw_col is None or rk_col is None:
+        raise ValueError('File needs a "search terms" column and an "RKW" column.')
+
+    items, seen = [], set()
+    for _, r in df.iterrows():
+        kw = str(r[kw_col]).strip()
+        rk = str(r[rk_col]).strip()
+        if not kw or kw.lower() in seen:
+            continue
+        seen.add(kw.lower())
+        items.append({"keyword": kw, "root": rk or "0-Gen"})
+    return items
+
+
+@bp.route("/projects/<pid>/semantics-upload", methods=["POST"])
+def upload_semantics(pid):
+    """Upload a custom (search terms, RKW) list that REPLACES the assembled Semantics
+    keywords — the uploaded terms become the selected rows with the given roots."""
+    if not cdb.get_project(pid):
+        abort(404)
+    fs = request.files.get("file")
+    if not fs or not (fs.filename or "").strip():
+        return jsonify({"success": False, "error": "No file uploaded"}), 400
+    if not (fs.filename or "").lower().endswith((".xlsx", ".xls", ".csv")):
+        return jsonify({"success": False, "error": "Upload a .xlsx / .xls / .csv file"}), 400
+    try:
+        items = _parse_semantics_upload(fs)
+    except Exception as e:  # noqa: BLE001 — surface a readable parse error to the user
+        return jsonify({"success": False, "error": str(e)}), 400
+    if not items:
+        return jsonify({"success": False, "error": "No rows found with a search term + RKW."}), 400
+    cdb.save_state(pid, "semantics_custom", items)
+    return jsonify({"success": True, "count": len(items)})
+
+
+@bp.route("/projects/<pid>/semantics-upload/clear", methods=["POST"])
+def clear_semantics_upload(pid):
+    """Drop the custom list and fall back to the normally-assembled Semantics."""
+    if not cdb.get_project(pid):
+        abort(404)
+    cdb.save_state(pid, "semantics_custom", [])
+    return jsonify({"success": True})
+
+
 @bp.route("/projects/<pid>/roots", methods=["POST"])
 def regen_roots(pid):
     """Recompute Semantics Root KW assignments via the PPC root rule, honoring the
