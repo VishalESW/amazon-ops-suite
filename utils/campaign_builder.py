@@ -8,6 +8,7 @@ Produces the .xlsx via campaign_engine.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 
@@ -297,7 +298,6 @@ def assemble(pid):
         # keywords are selected — even when the count is unchanged — invalidates a stale
         # map. A stale map misses on lookup and would dump every unmatched keyword into a
         # single fallback root: the "phantom root in the badge but not in the column" bug.
-        import hashlib
         sig = hashlib.md5("\n".join(sorted(k.lower() for k in kw_texts)).encode("utf-8")).hexdigest()
         if cached.get("map") and cached.get("sig") == sig and cached.get("custom", []) == custom_roots:
             root_map = cached["map"]
