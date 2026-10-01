@@ -1195,14 +1195,17 @@ def _parse_semantics_upload(fs):
     if kw_col is None or rk_col is None:
         raise ValueError('File needs a "search terms" column and an "RKW" column.')
 
+    # Dedup by (keyword, root) pair — NOT by keyword alone — so the same search term
+    # can appear under more than one root. Only exact (term+root) repeats collapse.
     items, seen = [], set()
     for _, r in df.iterrows():
         kw = str(r[kw_col]).strip()
-        rk = str(r[rk_col]).strip()
-        if not kw or kw.lower() in seen:
+        rk = (str(r[rk_col]).strip() or "0-Gen")
+        key = (kw.lower(), rk.lower())
+        if not kw or key in seen:
             continue
-        seen.add(kw.lower())
-        items.append({"keyword": kw, "root": rk or "0-Gen"})
+        seen.add(key)
+        items.append({"keyword": kw, "root": rk})
     return items
 
 

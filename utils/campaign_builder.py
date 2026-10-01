@@ -322,10 +322,12 @@ def assemble(pid):
         seen_c = set()
         for item in custom_sem:
             kw = str(item.get("keyword", "")).strip()
-            if not kw or kw.lower() in seen_c:
-                continue
-            seen_c.add(kw.lower())
             root = str(item.get("root", "")).strip() or "0-Gen"
+            # Dedup by (keyword, root) so one term may belong to several roots.
+            key = (kw.lower(), root.lower())
+            if not kw or key in seen_c:
+                continue
+            seen_c.add(key)
             sv = sv_by_kw.get(kw.lower(), 0)
             kw_type, match = _digit_rule(sv)
             sem_rows.append({
