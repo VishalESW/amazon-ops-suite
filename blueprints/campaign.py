@@ -1232,6 +1232,17 @@ def upload_semantics(pid):
     if not items:
         return jsonify({"success": False, "error": "No rows found with a search term + RKW."}), 400
     cdb.save_state(pid, "semantics_custom", items)
+    # Uploading a file means "use my list" — switch off auto-assemble so the app does
+    # not build its own keywords or assign roots over the uploaded data.
+    cdb.save_state(pid, "semantics_auto", False)
+    # Drop any stale per-keyword Root KW edits so the uploaded RKW is authoritative and
+    # never silently overwritten; other saved edits (KW Vol. etc.) are preserved.
+    stored = cdb.get_state(pid, "semantics_edits") or {}
+    if isinstance(stored, dict):
+        for k, fields in list(stored.items()):
+            if isinstance(fields, dict):
+                fields.pop("category", None)
+        cdb.save_state(pid, "semantics_edits", stored)
     # raw = data rows read; count = kept after removing byte-identical duplicates.
     return jsonify({"success": True, "count": len(items), "rows_read": raw,
                     "duplicates": raw - len(items)})
@@ -1239,11 +1250,23 @@ def upload_semantics(pid):
 
 @bp.route("/projects/<pid>/semantics-upload/clear", methods=["POST"])
 def clear_semantics_upload(pid):
-    """Drop the custom list and fall back to the normally-assembled Semantics."""
+    """Drop the custom list and switch auto-assemble back on."""
     if not cdb.get_project(pid):
         abort(404)
     cdb.save_state(pid, "semantics_custom", [])
+    cdb.save_state(pid, "semantics_auto", True)
     return jsonify({"success": True})
+
+
+@bp.route("/projects/<pid>/semantics-auto", methods=["POST"])
+def set_semantics_auto(pid):
+    """Toggle auto-assemble. ON = app builds keywords + assigns roots (normal). OFF =
+    use only the uploaded (search term, RKW) list; the app adds/changes nothing."""
+    if not cdb.get_project(pid):
+        abort(404)
+    enabled = bool((request.get_json(silent=True) or {}).get("enabled", True))
+    cdb.save_state(pid, "semantics_auto", enabled)
+    return jsonify({"success": True, "enabled": enabled})
 
 
 @bp.route("/projects/<pid>/roots", methods=["POST"])
