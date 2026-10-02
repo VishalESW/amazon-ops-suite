@@ -323,8 +323,9 @@ def assemble(pid):
         for item in custom_sem:
             kw = str(item.get("keyword", "")).strip()
             root = str(item.get("root", "")).strip() or "0-Gen"
-            # Dedup by (keyword, root) so one term may belong to several roots.
-            key = (kw.lower(), root.lower())
+            # Keep every row; drop only a byte-identical (keyword, root) repeat so
+            # case/spacing-distinct terms and shared-root terms are all preserved.
+            key = (kw, root)
             if not kw or key in seen_c:
                 continue
             seen_c.add(key)
