@@ -1195,18 +1195,23 @@ def _parse_semantics_upload(fs):
     if kw_col is None or rk_col is None:
         raise ValueError('File needs a "search terms" column and an "RKW" column.')
 
-    # Dedup by (keyword, root) pair — NOT by keyword alone — so the same search term
-    # can appear under more than one root. Only exact (term+root) repeats collapse.
-    items, seen = [], set()
+    # Keep every uploaded row; only drop a row that is byte-identical (same keyword
+    # AND same root, case/space preserved) to one already seen. This preserves terms
+    # that share a root, and terms that differ only by case or spacing — nothing the
+    # user typed is silently merged away.
+    items, seen, raw = [], set(), 0
     for _, r in df.iterrows():
         kw = str(r[kw_col]).strip()
         rk = (str(r[rk_col]).strip() or "0-Gen")
-        key = (kw.lower(), rk.lower())
-        if not kw or key in seen:
+        if not kw:
+            continue
+        raw += 1                      # a real data row (non-empty keyword)
+        key = (kw, rk)
+        if key in seen:
             continue
         seen.add(key)
         items.append({"keyword": kw, "root": rk})
-    return items
+    return items, raw
 
 
 @bp.route("/projects/<pid>/semantics-upload", methods=["POST"])
@@ -1221,13 +1226,15 @@ def upload_semantics(pid):
     if not (fs.filename or "").lower().endswith((".xlsx", ".xls", ".csv")):
         return jsonify({"success": False, "error": "Upload a .xlsx / .xls / .csv file"}), 400
     try:
-        items = _parse_semantics_upload(fs)
+        items, raw = _parse_semantics_upload(fs)
     except Exception as e:  # noqa: BLE001 — surface a readable parse error to the user
         return jsonify({"success": False, "error": str(e)}), 400
     if not items:
         return jsonify({"success": False, "error": "No rows found with a search term + RKW."}), 400
     cdb.save_state(pid, "semantics_custom", items)
-    return jsonify({"success": True, "count": len(items)})
+    # raw = data rows read; count = kept after removing byte-identical duplicates.
+    return jsonify({"success": True, "count": len(items), "rows_read": raw,
+                    "duplicates": raw - len(items)})
 
 
 @bp.route("/projects/<pid>/semantics-upload/clear", methods=["POST"])

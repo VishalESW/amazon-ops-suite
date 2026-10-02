@@ -1181,7 +1181,8 @@ function uploadSemantics(){
     btn.disabled=false;
     if(!res.success){document.getElementById('semUploadMsg').textContent='';toast(res.error||'Upload failed','error');return;}
     inp.value=''; semFilePicked();
-    toast(`Loaded ${res.count} custom keyword(s)`,'success');
+    const dup=res.duplicates||0;
+    toast(`Loaded ${res.count} keyword(s) from ${res.rows_read} row(s)`+(dup?` — ${dup} exact duplicate(s) skipped`:''),'success');
     loadAssemble();   // re-assemble so Semantics shows the uploaded keywords
   }).catch(()=>{btn.disabled=false;document.getElementById('semUploadMsg').textContent='';toast('Network error','error');});
 }
