@@ -289,11 +289,16 @@ def assemble(pid):
     # is non-deterministic); recomputed only when the keyword set or custom roots change.
     cached = state.get("roots") or {}
     custom_roots = cached.get("custom") or []
-    # Custom Semantics override: a user-uploaded (search term, RKW) list replaces the
-    # assembled keywords and supplies its own roots, so the AI root pass is skipped.
+    # Semantics source is governed by the auto-assemble toggle:
+    #   auto ON  -> the app builds keywords from Y tags and assigns roots (normal).
+    #   auto OFF -> use ONLY the uploaded (search term, RKW) list, roots verbatim,
+    #               no AI root pass and no app-assembled keywords.
+    sem_auto = state.get("semantics_auto")
+    sem_auto = True if sem_auto is None else bool(sem_auto)
     custom_sem = state.get("semantics_custom") or []
+    use_custom = (not sem_auto)
     root_map, rm_lower = {}, {}
-    if not custom_sem:
+    if sem_auto:
         # Signature over the EXACT keyword set (not just its count) so changing WHICH
         # keywords are selected — even when the count is unchanged — invalidates a stale
         # map. A stale map misses on lookup and would dump every unmatched keyword into a
@@ -315,10 +320,11 @@ def assemble(pid):
 
     # ---- Semantics rows ----------------------------------------------------
     sem_rows = []
-    if custom_sem:
-        # Uploaded list IS the Semantics content: each (search term, RKW) becomes a
-        # selected row with the user's root. Metrics (SV/CVR/orders) are still looked
-        # up from the uploaded data files when the term is present there.
+    if use_custom:
+        # Pure upload mode: the uploaded list IS the Semantics content — every
+        # (search term, RKW) becomes a selected row with the user's root verbatim.
+        # The app assembles nothing of its own and assigns no roots. Metrics
+        # (SV/CVR/orders) are still looked up from the data files when present.
         seen_c = set()
         for item in custom_sem:
             kw = str(item.get("keyword", "")).strip()
@@ -515,6 +521,7 @@ def assemble(pid):
         "root_summary": root_summary,
         "custom_roots": custom_roots,
         "semantics_custom": len(custom_sem),
+        "semantics_auto": sem_auto,
         "competitors": len(inp.competitor_kws),
         "own_brand_kws": len(inp.own_branded_kws),
         "str_included": bool(inp.str_table),

@@ -339,6 +339,13 @@ td.cp-kw-cell .cp-cellinput{ min-width:200px; }
           <button onclick="advanceTo('asin_sel')" class="rounded-md bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition">Continue to ASIN selection</button>
         </div>
       </div>
+      <div class="cp-card p-3 mb-3 flex flex-wrap items-center justify-between gap-2" style="background:hsl(var(--muted)/.4)">
+        <label class="inline-flex items-center gap-2 text-sm font-medium cursor-pointer">
+          <input id="semAutoToggle" type="checkbox" class="accent-emerald" onchange="setSemanticsAuto(this.checked)">
+          Auto-assemble keywords &amp; roots (let the app build Semantics)
+        </label>
+        <span id="semAutoHint" class="text-xs text-muted-foreground"></span>
+      </div>
       <div id="asmRoots" class="mb-3"></div>
       <div id="rootRule" class="cp-card p-3 mb-3" style="background:hsl(var(--muted)/.4)">
         <div class="flex flex-wrap items-end gap-2">
@@ -1143,8 +1150,16 @@ function renderSemantics(){
     asinChoices:(ASM.products||[]),
   };
   renderRootSummary();
-  // Reflect whether a custom uploaded keyword list is currently in effect.
+  // Reflect the auto-assemble toggle + whether a custom uploaded list is in effect.
+  const auto=!(ASM.meta && ASM.meta.semantics_auto===false);   // default on
   const cc=(ASM.meta&&ASM.meta.semantics_custom)||0;
+  const tog=document.getElementById('semAutoToggle'); if(tog) tog.checked=auto;
+  const hint=document.getElementById('semAutoHint');
+  if(hint) hint.textContent = auto
+    ? 'ON — the app builds keywords and assigns roots.'
+    : 'OFF — using only your uploaded file; the app changes nothing.';
+  // In upload mode the app assigns no roots, so hide the AI root-rule card.
+  const rr=document.getElementById('rootRule'); if(rr) rr.classList.toggle('hidden', !auto);
   const clr=document.getElementById('semClearBtn');
   if(clr) clr.classList.toggle('hidden', !cc);
   const badge=document.getElementById('semCustomBadge');
@@ -1157,6 +1172,13 @@ function renderSemantics(){
     editableGrid('sem');
 }
 
+function setSemanticsAuto(enabled){
+  fetch(`/campaign/projects/${PID}/semantics-auto`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({enabled:!!enabled})}).then(r=>r.json()).then(res=>{
+    if(res&&res.success){ toast(enabled?'Auto-assemble ON':'Auto-assemble OFF — using uploaded file only','success'); loadAssemble(); }
+    else toast('Could not change toggle','error');
+  }).catch(()=>toast('Network error','error'));
+}
 function semFilePicked(){
   const inp=document.getElementById('semFile'); const lbl=document.getElementById('semFileLabel');
   const f=inp.files&&inp.files[0];
