@@ -116,7 +116,7 @@ class Config:
     # manager role (approve gates, see the approval queue); everyone else is an
     # operator by default.
     CAMPAIGN_MANAGER_EMAILS = [
-        e.strip().lower() for e in os.getenv("CAMPAIGN_MANAGER_EMAILS", "").split(",")
+        e.strip().lower() for e in os.getenv("CAMPAIGN_MANAGER_EMAILS", "krushnaraj@esellerworld.com").split(",")
         if e.strip()
     ]
 
