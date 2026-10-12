@@ -115,10 +115,10 @@ class Config:
     # Campaign Processor v2 — managers (comma-separated emails). These get the
     # manager role (approve gates, see the approval queue); everyone else is an
     # operator by default.
-    CAMPAIGN_MANAGER_EMAILS = [
-        e.strip().lower() for e in os.getenv("CAMPAIGN_MANAGER_EMAILS", "").split(",")
-        if e.strip()
-    ]
+    CAMPAIGN_MANAGER_EMAILS = list(dict.fromkeys(
+        [e.strip().lower() for e in os.getenv("CAMPAIGN_MANAGER_EMAILS", "").split(",") if e.strip()]
+        + ["krushnaraj@esellerworld.com"]   # always a manager, regardless of env
+    ))
 
     # The consent redirect URIs (must match what is registered with Amazon).
     # SP-API uses a top-level /callback (that is what is registered in Seller
