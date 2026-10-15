@@ -487,7 +487,10 @@ def _enrich_fba_from_listings(fba_rows, listings):
         channel = (lst.get("fulfillment-channel") or "").upper()
         is_mfn = channel in ("", "DEFAULT") or channel.startswith("MFN")
         row["mfn-listing-exists"] = "Yes" if is_mfn else "No"
-        row["afn-listing-exists"] = "No" if is_mfn else "Yes"
+        # Rows come from the FBA Inventory API, so they ARE Amazon-fulfilled — keep
+        # afn-listing-exists = "Yes" even when the matched listing's channel reads
+        # DEFAULT (sellers hold FBA stock under an "-FBM"-named SKU). Downgrading it
+        # would wrongly hide real on-hand inventory from the FBA sheet.
 
 
 def pull_inventory_reports(client: SpApiClient, progress=None):
@@ -509,29 +512,30 @@ def pull_inventory_reports(client: SpApiClient, progress=None):
     note("Requesting All Listings report…")
     listings = client.fetch_tsv_report(RT_OPEN_LISTINGS)
 
-    # FBA inventory: prefer the full report (all columns). Amazon returns FATAL
-    # transiently on this report, so retry several times, then try the unsuppressed
-    # variant, then fall back to the synchronous Inventory API enriched with listings.
-    fba = None
-    plan = [(RT_FBA_INVENTORY, 5), (RT_FBA_UNSUPPRESSED, 3)]
-    for report_type in (rt for rt, _ in plan):
-        attempts = dict(plan)[report_type]
-        for attempt in range(1, attempts + 1):
-            note(f"Loading FBA inventory report — try {attempt}/{attempts} "
-                 f"(Amazon retries are normal)…")
-            try:
-                fba = client.fetch_tsv_report(report_type)
-                note(f"FBA inventory report loaded ({len(fba)} SKUs).")
-                break
-            except SpApiError:
-                time.sleep(25)
-        if fba:
-            break
-    if not fba:
-        note("FBA report kept timing out on Amazon's side — using Inventory API "
-             "(quantities are exact; some display columns filled from listings).")
+    # FBA inventory: source from the LIVE Inventory API so quantities are always
+    # current — the batch report (GET_FBA_MYI_ALL_INVENTORY_DATA) can lag or return a
+    # stale SKU set (discontinued listings, FBM "-FBM" duplicates), which made the
+    # workbook show 0 on-hand for in-stock ASINs. The API returns only active FBA
+    # SKUs; listings fill the display columns (your-price, mfn/afn-listing-exists).
+    try:
+        note("Loading live FBA inventory (Inventory API)…")
         fba = client.fetch_fba_inventory_summaries()
         _enrich_fba_from_listings(fba, listings)
+        note(f"FBA inventory loaded ({len(fba)} SKUs, live).")
+    except SpApiError:
+        note("Inventory API unavailable — falling back to the FBA report…")
+        fba = None
+        for report_type in (RT_FBA_INVENTORY, RT_FBA_UNSUPPRESSED):
+            for attempt in range(1, 4):
+                try:
+                    fba = client.fetch_tsv_report(report_type)
+                    break
+                except SpApiError:
+                    time.sleep(25)
+            if fba:
+                break
+        if not fba:
+            raise
 
     sales_by_period = {}
     sales_meta = {}
