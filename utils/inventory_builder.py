@@ -217,6 +217,11 @@ def _build_manage_fba(wb, reports, market):
 
     row = 4
     for r in reports.get("fba_inventory", []):
+        # FBA-only: the report lists an "-FBM" duplicate of each FBA ASIN
+        # (afn-listing-exists = No, mfn-listing-exists = Yes) — drop those so this
+        # sheet matches Seller Central's FBA view and the Sheet-1 SUMIFS keys.
+        if str(r.get("afn-listing-exists", "")).strip().lower() not in {"yes", "true", "1"}:
+            continue
         for i, key in enumerate(FBA_HEADERS, start=1):
             val = r.get(key, "")
             if i in _NUMERIC_FBA_COLS:
